@@ -4,16 +4,11 @@ FocusGuard 메인 컨트롤러
 실행: python main.py
 """
 
-import os
 import logging
 import sys
 import threading
 import time
 import numpy as np
-
-# logs 폴더를 로깅 설정보다 먼저 생성
-os.makedirs("logs", exist_ok=True)
-
 from config import Config
 from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
@@ -161,4 +156,6 @@ class FocusGuard:
 # ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import os
+    os.makedirs("logs", exist_ok=True)
     FocusGuard().run()

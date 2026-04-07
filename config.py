@@ -5,6 +5,7 @@ config.py
 - 클라우드 전환 시 USE_CLOUD_LLM = True 로 변경
 """
 
+
 class Config:
     # ──────────────────────────────────────────
     # 모드 전환 (클라우드 전환 시 True)
@@ -156,5 +157,6 @@ class Config:
         "stackoverflow.com",
         "docs.python.org",
         # 학교 LMS 주소를 여기에 추가
-        # "lms.university.ac.kr",
+        "eclass.yeonsung.ac.kr",
+        "yeonsung.ac.kr"
     ]

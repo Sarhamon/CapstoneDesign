@@ -1,0 +1,33 @@
+# FocusGuard 의존성
+# 설치: pip install -r requirements.txt
+
+# 화면 캡처
+mss==9.0.1
+
+# 창 정보
+pygetwindow==0.0.9
+
+# OCR
+paddleocr==2.7.3
+paddlepaddle==2.6.1   # CPU 버전. GPU 있으면 paddlepaddle-gpu 로 교체
+
+# 이미지 처리
+opencv-python==4.9.0.80
+Pillow==10.2.0
+numpy==1.26.4
+
+# HTTP (Ollama 호출)
+requests==2.31.0
+
+# ──────────────────────────────────────────
+# 설치 순서 주의
+# 1. pip install paddlepaddle
+# 2. pip install paddleocr
+# 3. pip install -r requirements.txt
+# ──────────────────────────────────────────
+
+# ──────────────────────────────────────────
+# Ollama 별도 설치 필요
+# https://ollama.com/download
+# 설치 후: ollama pull gemma3:4b
+# ──────────────────────────────────────────
