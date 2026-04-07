@@ -1,4 +1,4 @@
-# FocusGuard 의존성
+p# FocusGuard 의존성
 # 설치: pip install -r requirements.txt
 
 # 화면 캡처
