@@ -1,0 +1,20 @@
+# FocusGuard 의존성
+# 설치: pip install -r requirements.txt
+
+# 화면 캡처
+mss
+
+# 창 정보
+pygetwindow==0.0.9
+pywin32
+
+# OCR
+easyocr
+
+# 이미지 처리
+opencv-python
+Pillow
+numpy
+
+# HTTP (Ollama 호출)
+requests
