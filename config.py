@@ -8,6 +8,11 @@ config.py
 
 class Config:
     # ──────────────────────────────────────────
+    # 해제 코드 (교수자가 학생에게 구두 전달)
+    # ──────────────────────────────────────────
+    UNLOCK_CODE: str = "1234"   # 실제 운영 시 변경 필요
+
+    # ──────────────────────────────────────────
     # 모드 전환 (클라우드 전환 시 True)
     # ──────────────────────────────────────────
     USE_CLOUD_LLM: bool = False
@@ -157,6 +162,5 @@ class Config:
         "stackoverflow.com",
         "docs.python.org",
         # 학교 LMS 주소를 여기에 추가
-        "eclass.yeonsung.ac.kr",
-        "yeonsung.ac.kr"
+        # "lms.university.ac.kr",
     ]

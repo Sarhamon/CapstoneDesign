@@ -4,11 +4,16 @@ FocusGuard 메인 컨트롤러
 실행: python main.py
 """
 
+import os
 import logging
 import sys
 import threading
 import time
 import numpy as np
+
+# logs 폴더를 로깅 설정보다 먼저 생성
+os.makedirs("logs", exist_ok=True)
+
 from config import Config
 from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
@@ -37,7 +42,7 @@ class FocusGuard:
     def __init__(self):
         self.event_logger = EventLogger()
         self.llm = get_llm_client()
-        self.overlay = BlockOverlay(on_request_callback=self._on_unlock_request)
+        self.overlay = BlockOverlay(on_unlock_callback=self._on_unlock)
         self.monitor = ScreenMonitor(on_detect_callback=self._on_detect)
 
         # 화이트리스트 통과 후 LLM 판단 대기 상태 관리
@@ -131,16 +136,14 @@ class FocusGuard:
     # 해제 요청 콜백 (BlockOverlay → 여기로)
     # ──────────────────────────────────────────
 
-    def _on_unlock_request(self, block_reason: str, student_note: str):
+    def _on_unlock(self, block_reason: str):
         """
+        코드 인증 성공 시 호출
         현재: 로컬 로그 저장
-        추후: 클라우드 서버 → 교수자 대시보드 알림 전송
+        추후: 클라우드 서버에 해제 이벤트 전송
         """
-        self.event_logger.log_unlock_request(block_reason, student_note)
-        logger.info(f"[해제 요청 수신] 사유: {student_note}")
-
-        # TODO (4월 말~): 클라우드 서버로 해제 요청 전송
-        # cloud_client.send_unlock_request(block_reason, student_note)
+        self.event_logger.log_unlock_request(block_reason, "코드 인증 성공")
+        logger.info(f"[차단 해제] {block_reason}")
 
     # ──────────────────────────────────────────
     # 화이트리스트 확인
@@ -156,6 +159,4 @@ class FocusGuard:
 # ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import os
-    os.makedirs("logs", exist_ok=True)
     FocusGuard().run()
