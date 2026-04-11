@@ -1,4 +1,4 @@
-p# FocusGuard 의존성
+# FocusGuard 의존성
 # 설치: pip install -r requirements.txt
 
 # 화면 캡처
@@ -18,3 +18,6 @@ numpy
 
 # HTTP (Ollama 호출)
 requests
+
+# 프로세스 제어
+psutil

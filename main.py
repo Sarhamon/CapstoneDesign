@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import numpy as np
+import psutil
 
 # logs 폴더를 로깅 설정보다 먼저 생성
 os.makedirs("logs", exist_ok=True)
@@ -121,6 +122,7 @@ class FocusGuard:
 
             if llm_result == "BLOCK":
                 self.event_logger.log_block(stage, reason, llm_result)
+                self._kill_active_window()
                 self.overlay.show(reason)
 
             elif llm_result == "UNSURE":
@@ -144,6 +146,46 @@ class FocusGuard:
         """
         self.event_logger.log_unlock_request(block_reason, "코드 인증 성공")
         logger.info(f"[차단 해제] {block_reason}")
+
+    # ──────────────────────────────────────────
+    # 프로세스 강제 종료
+    # ──────────────────────────────────────────
+
+    def _kill_active_window(self):
+        """차단 판정 시 현재 활성 창의 프로세스를 종료"""
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if not hwnd:
+                logger.warning("활성 창 핸들을 찾을 수 없음")
+                return
+
+            pid = ctypes.c_ulong()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            pid = pid.value
+
+            if pid == 0:
+                logger.warning("PID 획득 실패")
+                return
+
+            proc = psutil.Process(pid)
+            proc_name = proc.name()
+
+            # FocusGuard 자신은 절대 종료하지 않음
+            if "python" in proc_name.lower():
+                logger.warning(f"Python 프로세스 종료 차단: {proc_name} (PID {pid})")
+                return
+
+            proc.terminate()
+            logger.info(f"[프로세스 종료] {proc_name} (PID {pid})")
+            self.event_logger.log_block("PROCESS_KILL", f"{proc_name} (PID {pid})")
+
+        except psutil.NoSuchProcess:
+            logger.warning("종료 대상 프로세스가 이미 없음")
+        except psutil.AccessDenied:
+            logger.error("프로세스 종료 권한 없음 — 관리자 권한으로 실행 필요")
+        except Exception as e:
+            logger.error(f"프로세스 종료 오류: {e}")
 
     # ──────────────────────────────────────────
     # 화이트리스트 확인
