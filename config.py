@@ -76,7 +76,7 @@ class Config:
         "오버워치", "Overwatch",
         "로스트아크", "Lost Ark",
         "피파온라인", "FC 온라인",
-        "메이플스토리",
+        "메이플스토리","MapleStory",
         "리니지",
 
         # 쇼핑 / 웹툰
