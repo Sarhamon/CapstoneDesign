@@ -81,53 +81,58 @@ class FocusGuard:
     # 탐지 콜백 (ScreenMonitor → 여기로)
     # ──────────────────────────────────────────
 
-    def _on_detect(self, stage: str, reason: str, screenshot: np.ndarray):
+    def _get_target_info(self) -> tuple[int | None, int | None]:
+        """현재 활성화된 최상단 창의 HWND와 PID를 반환합니다."""
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if not hwnd:
+                return None, None
+
+            pid = ctypes.c_ulong()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            return hwnd, pid.value
+        except Exception as e:
+            logger.error(f"타겟 정보 획득 실패: {e}")
+            return None, None
+
+    # _on_detect 메서드 시그니처 수정
+    def _on_detect(self, stage: str, reason: str, screenshot: np.ndarray, target_hwnd: int | None, target_pid: int | None):
         """
-        1~2단계 탐지 결과 수신
-        화이트리스트 확인 후 → LLM 최종 판단
+        monitor.py에서 확정 지은 HWND와 PID를 전달받아 처리
         """
-        # 화이트리스트 확인
         if self._is_whitelisted(reason):
             logger.info(f"화이트리스트 통과: {reason}")
             return
 
-        # 이미 차단 중이면 중복 처리 방지
         if self.overlay.is_active:
             return
 
-        # 1·2단계 규칙에서 잡힌 경우 → LLM 최종 확인 (비동기)
+        # 이제 main.py에서 PID를 캡처하지 않고, 인자로 받은 값을 그대로 넘김
         threading.Thread(
             target=self._llm_verify,
-            args=(stage, reason, screenshot),
+            args=(stage, reason, screenshot, target_hwnd, target_pid),
             daemon=True,
         ).start()
 
-    def _llm_verify(self, stage: str, reason: str, screenshot: np.ndarray):
-        """LLM 최종 판단 (별도 스레드에서 실행)"""
+    def _llm_verify(self, stage: str, reason: str, screenshot: np.ndarray, target_hwnd: int | None, target_pid: int | None):
         with self._llm_lock:
             if self.overlay.is_active:
                 return
 
             logger.info(f"LLM 검증 시작: {stage} | {reason}")
 
-            # OCR 텍스트는 monitor 내부에서 이미 추출됨
-            # 여기서는 stage/reason 정보만 LLM에 전달 (추가 OCR 생략)
-            llm_result = self.llm.analyze(
-                window_title=reason,
-                url_text="",
-                ocr_text=reason,    # 이미 추출된 reason 텍스트 재사용
-            )
-
-            logger.info(f"LLM 판정: {llm_result}")
+            llm_result = self.llm.analyze(window_title=reason, url_text="", ocr_text=reason)
 
             if llm_result == "BLOCK":
                 self.event_logger.log_block(stage, reason, llm_result)
-                self._kill_active_window()
+                
+                # HWND와 PID를 함께 넘겨 스마트 종료 실행
+                self._smart_kill_target(target_hwnd, target_pid)
+                
                 self.overlay.show(reason)
 
             elif llm_result == "UNSURE":
-                # UNSURE는 일단 로그만 남기고 통과
-                # 정책에 따라 BLOCK으로 강화할 수 있음
                 logger.warning(f"LLM UNSURE → 통과 처리: {reason}")
                 self.event_logger.log_allow(reason)
 
@@ -151,41 +156,40 @@ class FocusGuard:
     # 프로세스 강제 종료
     # ──────────────────────────────────────────
 
-    def _kill_active_window(self):
-        """차단 판정 시 현재 활성 창의 프로세스를 종료"""
+    def _smart_kill_target(self, hwnd: int | None, pid: int | None):
+        """프로세스 특성에 따라 부드러운 창 닫기 또는 강제 종료를 선택적으로 수행"""
+        if not hwnd or not pid:
+            logger.warning("종료할 대상 정보가 부족합니다.")
+            return
+
         try:
-            import ctypes
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            if not hwnd:
-                logger.warning("활성 창 핸들을 찾을 수 없음")
-                return
-
-            pid = ctypes.c_ulong()
-            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            pid = pid.value
-
-            if pid == 0:
-                logger.warning("PID 획득 실패")
-                return
-
+            import win32gui
+            import win32con
             proc = psutil.Process(pid)
-            proc_name = proc.name()
+            proc_name = proc.name().lower()
 
-            # FocusGuard 자신은 절대 종료하지 않음
-            if "python" in proc_name.lower():
-                logger.warning(f"Python 프로세스 종료 차단: {proc_name} (PID {pid})")
+            if "python" in proc_name:
+                logger.warning(f"Python 프로세스 종료 차단 방어 성공: {proc_name}")
                 return
 
-            proc.terminate()
-            logger.info(f"[프로세스 종료] {proc_name} (PID {pid})")
-            self.event_logger.log_block("PROCESS_KILL", f"{proc_name} (PID {pid})")
+            # 주요 브라우저 목록
+            browser_list = ["chrome.exe", "msedge.exe", "whale.exe", "firefox.exe"]
+            
+            if any(b in proc_name for b in browser_list):
+                # 브라우저: 프로세스 트리 강제 종료 대신, 해당 창에 'X' 버튼을 누른 것과 같은 효과 전송
+                logger.info(f"[브라우저 창 닫기] {proc_name} (HWND: {hwnd})")
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                self.event_logger.log_block("WINDOW_CLOSE", f"{proc_name} (HWND {hwnd})")
+            else:
+                # 게임 및 일반 프로그램: 가차 없이 PID 킬
+                proc.terminate()
+                logger.info(f"[프로세스 종료 성공] {proc_name} (PID {pid})")
+                self.event_logger.log_block("PROCESS_KILL", f"{proc_name} (PID {pid})")
 
         except psutil.NoSuchProcess:
-            logger.warning("종료 대상 프로세스가 이미 없음")
-        except psutil.AccessDenied:
-            logger.error("프로세스 종료 권한 없음 — 관리자 권한으로 실행 필요")
+            logger.info("대상 프로세스가 이미 닫혔습니다.")
         except Exception as e:
-            logger.error(f"프로세스 종료 오류: {e}")
+            logger.error(f"종료 처리 중 오류: {e}")
 
     # ──────────────────────────────────────────
     # 화이트리스트 확인

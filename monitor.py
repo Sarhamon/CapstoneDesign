@@ -47,8 +47,26 @@ class ScreenMonitor:
                 logger.error(f"모니터링 루프 오류: {e}")
             time.sleep(Config.POLL_INTERVAL)
 
+    # monitor.py 클래스 내부에 헬퍼 함수 추가
+    def _get_current_focus_info(self) -> tuple[int | None, int | None]:
+        """현재 포커스된 창의 HWND와 PID를 반환"""
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if not hwnd:
+                return None, None
+            pid = ctypes.c_ulong()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            return hwnd, pid.value
+        except:
+            return None, None
+
+    # _check 메서드 전체 수정
     def _check(self):
-        # 1단계: 창 타이틀 매칭
+        # 1. 검사 시작 시점의 포커스 창 정보를 '스냅샷'으로 박제
+        target_hwnd, target_pid = self._get_current_focus_info()
+        
+        # 2. 타이틀 검사
         title = self._get_active_window_title()
         if title and title != self._last_window_title:
             logger.debug(f"활성 창: {title}")
@@ -57,21 +75,25 @@ class ScreenMonitor:
         result = self._check_window_title(title)
         if result:
             screenshot = self._capture_screen()
-            self.callback("TITLE_MATCH", result, screenshot)
+            # 박제해둔 포커스 정보를 함께 넘김
+            self.callback("TITLE_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
-        # 2단계: OCR 분석
+        # 3. OCR 분석을 위한 스크린샷 캡처
+        # (캡처하는 순간에도 포커스가 바뀌었을 수 있으므로 다시 한번 박제)
+        target_hwnd, target_pid = self._get_current_focus_info()
         screenshot = self._capture_screen()
+        
         url_text, body_text = self._split_zones(screenshot)
 
         result = self._check_url_keywords(url_text)
         if result:
-            self.callback("URL_MATCH", result, screenshot)
+            self.callback("URL_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
         result = self._check_content_keywords(body_text)
         if result:
-            self.callback("KEYWORD_MATCH", result, screenshot)
+            self.callback("KEYWORD_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
         logger.debug("탐지 없음 — 허용")
