@@ -71,6 +71,7 @@ class Config:
         "Steam",
         "Battle.net",
         "League of Legends",
+        "Nexon",
         "VALORANT",
         "오버워치", "Overwatch",
         "로스트아크", "Lost Ark",
@@ -82,6 +83,8 @@ class Config:
         "쿠팡",
         "네이버 웹툰",
         "카카오웹툰",
+        "레진코믹스",
+        "뉴토끼"
     ]
 
     # ──────────────────────────────────────────
@@ -161,6 +164,8 @@ class Config:
         "github.com",
         "stackoverflow.com",
         "docs.python.org",
+        "yeonsung.ac.kr",
+        "eclass.yeonsung.ac.kr"
         # 학교 LMS 주소를 여기에 추가
         # "lms.university.ac.kr",
     ]
