@@ -164,8 +164,8 @@ class Config:
         "github.com",
         "stackoverflow.com",
         "docs.python.org",
+        # 학교 도메인
         "yeonsung.ac.kr",
         "eclass.yeonsung.ac.kr"
         # 학교 LMS 주소를 여기에 추가
-        # "lms.university.ac.kr",
     ]
