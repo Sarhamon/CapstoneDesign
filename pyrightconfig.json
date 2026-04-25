@@ -6,6 +6,9 @@
         "."
     ],
     "exclude": [
+        "**/node_modules",
+        "**/.*/",
+        "**/.*",
         "**/__pycache__",
         "logs"
     ],
