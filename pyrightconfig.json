@@ -1,0 +1,14 @@
+{
+    "pythonVersion": "3.12",
+    "pythonPlatform": "Windows",
+    "venvPath": ".",
+    "include": [
+        "."
+    ],
+    "exclude": [
+        "**/__pycache__",
+        "logs"
+    ],
+    "reportMissingModuleSource": "none",
+    "reportMissingTypeStubs": "none"
+}
