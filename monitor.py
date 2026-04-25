@@ -12,6 +12,7 @@ import numpy as np
 import cv2
 import pygetwindow as gw
 import easyocr
+import psutil
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,28 @@ class ScreenMonitor:
         except:
             return None, None
 
+    def _get_process_name(self, pid: int | None) -> str:
+        """PID로 실행 파일명(예: 'Code.exe')을 반환한다. 실패 시 ""."""
+        if not pid:
+            return ""
+        try:
+            return psutil.Process(pid).name()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return ""
+
+    def _is_process_whitelisted(self, proc_name: str) -> bool:
+        """프로세스명이 PROCESS_WHITELIST에 있으면 True (대소문자 무시)."""
+        name_lower = proc_name.lower()
+        return any(w.lower() == name_lower for w in Config.PROCESS_WHITELIST)
+
+    def _check_process_blacklist(self, proc_name: str):
+        """프로세스명이 PROCESS_BLACKLIST에 있으면 사유 문자열 반환, 없으면 None."""
+        name_lower = proc_name.lower()
+        for blocked in Config.PROCESS_BLACKLIST:
+            if blocked.lower() == name_lower:
+                return f"프로세스 블랙리스트 감지: '{proc_name}'"
+        return None
+
     def _check(self):
         """
         한 번의 폴링 주기에서 수행되는 전체 탐지 파이프라인.
@@ -110,6 +133,22 @@ class ScreenMonitor:
         """
         # 검사 시작 시점의 포커스 창 정보를 스냅샷으로 기록한다.
         target_hwnd, target_pid = self._get_current_focus_info()
+
+        # ── 0단계: 프로세스 화이트리스트 (최우선) ──
+        # proc_name 취득 성공 여부와 무관하게 화이트리스트를 먼저 평가한다.
+        proc_name = self._get_process_name(target_pid)
+        if self._is_process_whitelisted(proc_name):
+            logger.debug(f"프로세스 화이트리스트 통과: {proc_name}")
+            return
+
+        # ── 0단계: 프로세스 블랙리스트 ──
+        # 프로세스명을 확인한 경우에만 블랙리스트와 대조한다.
+        if proc_name:
+            result = self._check_process_blacklist(proc_name)
+            if result:
+                screenshot = self._capture_screen()
+                self.callback("PROCESS_MATCH", result, screenshot, target_hwnd, target_pid)
+                return
 
         # ── 1단계: 창 타이틀 블랙리스트 검사 ──
         title = self._get_active_window_title()

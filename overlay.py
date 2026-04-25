@@ -8,10 +8,62 @@ overlay.py
 import tkinter as tk
 import queue
 import logging
+import ctypes
+import ctypes.wintypes
 from datetime import datetime
 from config import Config
 
 logger = logging.getLogger(__name__)
+
+_user32 = ctypes.windll.user32
+
+# CallNextHookEx: lParam은 64비트 포인터 크기이므로 argtypes를 명시해야 OverflowError를 방지한다.
+_user32.CallNextHookEx.restype  = ctypes.c_long
+_user32.CallNextHookEx.argtypes = [
+    ctypes.c_void_p,          # HHOOK hhk
+    ctypes.c_int,             # int   nCode
+    ctypes.wintypes.WPARAM,   # WPARAM wParam
+    ctypes.wintypes.LPARAM,   # LPARAM lParam (64비트)
+]
+_user32.SetWindowsHookExA.restype  = ctypes.c_void_p
+_user32.SetWindowsHookExA.argtypes = [
+    ctypes.c_int,
+    ctypes.c_void_p,          # HOOKPROC (콜백 포인터)
+    ctypes.c_void_p,          # HINSTANCE hmod
+    ctypes.wintypes.DWORD,    # DWORD dwThreadId
+]
+_user32.UnhookWindowsHookEx.restype  = ctypes.wintypes.BOOL
+_user32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
+_user32.SetWindowPos.restype  = ctypes.wintypes.BOOL
+_user32.SetWindowPos.argtypes = [
+    ctypes.c_void_p,        # HWND hWnd
+    ctypes.c_void_p,        # HWND hWndInsertAfter
+    ctypes.c_int,           # int X
+    ctypes.c_int,           # int Y
+    ctypes.c_int,           # int cx (너비)
+    ctypes.c_int,           # int cy (높이)
+    ctypes.wintypes.UINT,   # UINT uFlags
+]
+_user32.GetSystemMetrics.restype  = ctypes.c_int
+_user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+
+
+class _KBDLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("vkCode",      ctypes.wintypes.DWORD),
+        ("scanCode",    ctypes.wintypes.DWORD),
+        ("flags",       ctypes.wintypes.DWORD),
+        ("time",        ctypes.wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_size_t),   # ULONG_PTR (포인터 크기)
+    ]
+
+
+_HOOKPROC = ctypes.WINFUNCTYPE(
+    ctypes.c_long,
+    ctypes.c_int,
+    ctypes.wintypes.WPARAM,
+    ctypes.wintypes.LPARAM,
+)
 
 
 class BlockOverlay:
@@ -47,6 +99,8 @@ class BlockOverlay:
         self.root = None
         self._overlay_frame = None  # 오버레이 컨텐츠를 담는 프레임 위젯
         self._time_label = None     # 차단 시각을 표시하는 레이블 위젯
+        self._kb_hook = None        # 저수준 키보드 훅 핸들
+        self._kb_hook_func = None   # 훅 콜백 (GC 방지용 참조 유지)
 
     # ──────────────────────────────────────────
     # 메인 스레드 루프 (main.py의 run()에서 호출)
@@ -145,6 +199,7 @@ class BlockOverlay:
         self._active = True
         self._reason = reason
         self._build_ui()
+        # self._install_kb_hook()  # TODO: 테스트 완료 후 주석 해제
 
     def _hide(self):
         """
@@ -154,10 +209,12 @@ class BlockOverlay:
         작업 표시줄에서도 사라지게 한다.
         """
         self._active = False
+        # self._uninstall_kb_hook()  # TODO: 테스트 완료 후 주석 해제
         if self._overlay_frame:
             self._overlay_frame.destroy()
             self._overlay_frame = None
         if self.root:
+            self.root.overrideredirect(False)
             self.root.withdraw()
 
     def _build_ui(self):
@@ -170,12 +227,34 @@ class BlockOverlay:
         # run_mainloop() 이후에만 호출되므로 root는 반드시 초기화되어 있다.
         assert self.root is not None
         root = self.root
-        root.deiconify()                         # 숨겨진 창을 다시 표시한다.
-        root.attributes("-fullscreen", True)     # 전체 화면 모드
-        root.attributes("-topmost", True)        # 항상 최상위 창으로 유지
-        root.attributes("-alpha", 0.93)          # 반투명 (완전 불투명이면 1.0)
+
+        # ── 전체화면 설정 순서 ──
+        # 1) overrideredirect → geometry → deiconify 순서로 설정해야
+        #    창이 표시될 때부터 올바른 크기로 나타난다.
+        #    deiconify 이후에 geometry를 바꾸면 Windows가 무시하는 경우가 있다.
+        # 2) Tkinter geometry 설정 후 SetWindowPos로 물리 픽셀 기준 전체화면을 강제하여
+        #    DPI 스케일(125%, 150%) 환경에서도 항상 화면 전체를 덮는다.
+        HWND_TOPMOST   = -1
+        SWP_SHOWWINDOW = 0x0040
+
+        root.overrideredirect(True)
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        root.geometry(f"{sw}x{sh}+0+0")  # Tkinter 논리 픽셀 기준
+        root.attributes("-topmost", True)
+        root.attributes("-alpha", 0.93)
         root.configure(bg="#1a1a2e")
-        root.protocol("WM_DELETE_WINDOW", lambda: None)  # 닫기 버튼 비활성화
+        root.deiconify()                  # 이미 올바른 크기/속성이 확정된 상태에서 표시
+        root.update()                     # 모든 pending 이벤트 처리
+
+        # Win32 API로 물리 픽셀 기준 전체화면 강제 (DPI 스케일 무관)
+        phys_w = _user32.GetSystemMetrics(0)  # SM_CXSCREEN
+        phys_h = _user32.GetSystemMetrics(1)  # SM_CYSCREEN
+        hwnd   = root.winfo_id()
+        _user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, phys_w, phys_h, SWP_SHOWWINDOW)
+
+        root.lift()
+        root.focus_force()
 
         # 이전에 표시된 오버레이 프레임이 있으면 제거 후 새로 생성한다.
         if self._overlay_frame:
@@ -241,6 +320,7 @@ class BlockOverlay:
         )
         self._time_label.pack(pady=(24, 0))
         self._update_time()
+        self._enforce_topmost()
 
     def _update_time(self):
         """
@@ -253,6 +333,53 @@ class BlockOverlay:
             self._time_label.config(text=f"차단 시각: {now}")
             # after()는 Tkinter 메인 루프에서 실행되므로 스레드 안전하다.
             self.root.after(1000, self._update_time)
+
+    def _enforce_topmost(self):
+        """오버레이가 항상 최상위에 유지되도록 500ms마다 재확인한다."""
+        if not self._active or not self.root:
+            return
+        self.root.lift()
+        self.root.attributes("-topmost", True)
+        self.root.after(500, self._enforce_topmost)
+
+    # ──────────────────────────────────────────
+    # 키보드 훅 (Alt+Tab / Win 키 차단)
+    # ──────────────────────────────────────────
+
+    def _install_kb_hook(self):
+        """Alt+Tab, Alt+F4, Win 키를 차단하는 저수준 키보드 훅을 설치한다."""
+        VK_TAB  = 0x09
+        VK_F4   = 0x73
+        VK_LWIN = 0x5B
+        VK_RWIN = 0x5C
+        VK_MENU = 0x12  # Alt
+
+        def _handler(nCode, wParam, lParam):
+            if nCode >= 0:
+                kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
+                vk = kb.vkCode
+                alt = bool(_user32.GetAsyncKeyState(VK_MENU) & 0x8000)
+                if alt and vk in (VK_TAB, VK_F4):
+                    return 1  # 차단: CallNextHookEx 호출 생략
+                if vk in (VK_LWIN, VK_RWIN):
+                    return 1  # Win 키 차단 (Win+D, Win+Tab 등 우회 방지)
+            return _user32.CallNextHookEx(self._kb_hook, nCode, wParam, lParam)
+
+        self._kb_hook_func = _HOOKPROC(_handler)
+        WH_KEYBOARD_LL = 13
+        self._kb_hook = _user32.SetWindowsHookExA(WH_KEYBOARD_LL, self._kb_hook_func, None, 0)
+        if self._kb_hook:
+            logger.info("키보드 훅 설치 완료 (Alt+Tab, Alt+F4, Win 키 차단)")
+        else:
+            logger.warning("키보드 훅 설치 실패")
+
+    def _uninstall_kb_hook(self):
+        """저수준 키보드 훅을 제거한다."""
+        if self._kb_hook:
+            _user32.UnhookWindowsHookEx(self._kb_hook)
+            self._kb_hook = None
+            self._kb_hook_func = None
+            logger.info("키보드 훅 제거 완료")
 
     # ──────────────────────────────────────────
     # 해제 코드 입력 팝업

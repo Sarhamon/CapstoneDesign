@@ -69,6 +69,54 @@ class Config:
     LOG_DIR: str = "logs"
 
     # ──────────────────────────────────────────
+    # 프로세스 블랙/화이트리스트 (실행 파일명 기준)
+    # ──────────────────────────────────────────
+
+    # 포커스된 프로세스명이 여기에 있으면 OCR 없이 즉시 차단한다.
+    PROCESS_BLACKLIST: list = [
+        # 메신저 / 소셜
+        "KakaoTalk.exe",
+        "Discord.exe",
+
+        # 게임 클라이언트
+        "LeagueClient.exe",
+        "VALORANT-Win64-Shipping.exe",
+        "Steam.exe",
+        "NexonPlug.exe",
+
+        # 미디어
+        "Melon.exe",
+
+        # 앱 플레이어 (안드로이드)
+        "Nox.exe",
+        "dnplayer.exe",
+        "HD-Player.exe",
+        "NemuPlayer.exe",
+
+        # 마인크래프트 (javaw.exe는 수업용 가능성 있어 제외)
+        "MinecraftLauncher.exe",
+        "Minecraft.Windows.exe",
+    ]
+
+    # 포커스된 프로세스명이 여기에 있으면 모든 검사를 건너뛰고 허용한다.
+    PROCESS_WHITELIST: list = [
+        # IDE / 텍스트 에디터
+        "Code.exe",           # Visual Studio Code
+        "Cursor.exe",         # Cursor IDE
+        "idea64.exe",         # IntelliJ IDEA
+        "eclipse.exe",        # Eclipse
+        "STS.exe",            # Spring Tool Suite
+        "pycharm64.exe",      # PyCharm
+
+        # 시스템 / FocusGuard 자체
+        "python.exe",
+        "FocusGuard.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "WindowsTerminal.exe",
+    ]
+
+    # ──────────────────────────────────────────
     # 1단계: 창 타이틀 블랙리스트
     # ──────────────────────────────────────────
     # monitor.py의 _check_window_title()에서 활성 창 제목과 대소문자 무관 부분 일치로 비교한다.
