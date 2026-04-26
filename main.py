@@ -99,8 +99,12 @@ class FocusGuard:
 
         # 웹 기반 해제 인증 서버 (LAN 내 교수자 폰에서 QR 스캔으로 접근).
         # WebAuthServer 콜백은 별도 스레드에서 호출되므로 ui_queue로 메인 스레드에 마샬링한다.
-        self.web_auth = WebAuthServer(port=Config.WEB_AUTH_PORT)
+        self.web_auth = WebAuthServer(
+            port=Config.WEB_AUTH_PORT,
+            max_failed_attempts=Config.UNLOCK_MAX_FAILED_ATTEMPTS,
+        )
         self.web_auth.set_on_success(lambda: self._ui_queue.put(("web-unlock",)))
+        self.web_auth.set_on_lockout(lambda: self._ui_queue.put(("auth-locked",)))
 
         self.overlay = BlockOverlay(
             on_unlock_callback=self._on_unlock,

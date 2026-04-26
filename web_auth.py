@@ -104,12 +104,15 @@ class WebAuthServer:
         - 콜백 구현 측에서 메인 스레드 작업이 필요하면 큐를 통해 마샬링해야 한다.
     """
 
-    def __init__(self, port: int = 8080):
+    def __init__(self, port: int = 8080, max_failed_attempts: int = 5):
         self.port = port
+        self._max_failed_attempts = max_failed_attempts
         self._lock = threading.Lock()
         self._current_code: Optional[str] = None
         self._expires_at: float = 0.0
+        self._failed_attempts: int = 0
         self._on_success: Optional[Callable[[], None]] = None
+        self._on_lockout: Optional[Callable[[], None]] = None
         self._server: Optional[http.server.HTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -117,30 +120,71 @@ class WebAuthServer:
         """해제 코드 인증 성공 시 호출할 콜백을 등록한다."""
         self._on_success = callback
 
+    def set_on_lockout(self, callback: Callable[[], None]) -> None:
+        """
+        연속 실패 임계 초과로 활성 코드가 무효화되었을 때 호출할 콜백을 등록한다.
+        오버레이가 QR 패널 → 요청 버튼 상태로 즉시 복귀하도록 신호를 보낼 때 사용한다.
+        """
+        self._on_lockout = callback
+
     def set_code(self, code: str, ttl_seconds: int) -> None:
-        """단일 활성 해제 코드를 설정한다. 기존 코드는 즉시 무효화된다."""
+        """단일 활성 해제 코드를 설정한다. 기존 코드와 실패 카운터는 즉시 리셋된다."""
         with self._lock:
             self._current_code = code
             self._expires_at = time.time() + ttl_seconds
+            self._failed_attempts = 0
 
     def clear_code(self) -> None:
         """활성 해제 코드를 제거한다 (만료/취소 시)."""
         with self._lock:
             self._current_code = None
             self._expires_at = 0.0
+            self._failed_attempts = 0
 
     def _validate(self, submitted: str) -> tuple[bool, str]:
-        """제출된 코드를 활성 코드와 비교한다. 일치 시 코드는 즉시 소멸한다."""
+        """
+        제출된 코드를 활성 코드와 비교한다.
+
+        성공 시 코드는 즉시 소멸한다 (일회성).
+        연속 실패가 max_failed_attempts에 도달하면 코드를 무효화하고 lockout 콜백을 호출한다.
+        콜백은 락 해제 후에 호출하여 데드락 위험을 차단한다.
+        """
+        triggered_lockout = False
         with self._lock:
             if not self._current_code:
                 return False, "활성화된 해제 요청이 없습니다."
             if time.time() > self._expires_at:
                 self._current_code = None
+                self._failed_attempts = 0
                 return False, "해제 코드가 만료되었습니다."
-            if not secrets.compare_digest(submitted, self._current_code):
-                return False, "잘못된 코드입니다."
-            self._current_code = None  # 일회성 — 재사용 금지
-            return True, ""
+
+            if secrets.compare_digest(submitted, self._current_code):
+                self._current_code = None  # 일회성 — 재사용 금지
+                self._failed_attempts = 0
+                return True, ""
+
+            # 실패 — 카운터 증가 후 임계값 도달 시 코드 무효화
+            self._failed_attempts += 1
+            remaining = self._max_failed_attempts - self._failed_attempts
+            if remaining <= 0:
+                self._current_code = None
+                self._failed_attempts = 0
+                triggered_lockout = True
+                msg = "잘못된 코드를 여러 번 입력하여 무효화되었습니다. 학생에게 새 코드를 요청하세요."
+            else:
+                msg = f"잘못된 코드입니다. (남은 시도 {remaining}회)"
+
+        # 락 밖에서 콜백 호출 (콜백이 락을 다시 잡으려 할 가능성 배제)
+        if triggered_lockout:
+            logger.warning(
+                "[브루트포스 방어] 연속 실패 한도 초과 → 활성 코드 무효화"
+            )
+            if self._on_lockout:
+                try:
+                    self._on_lockout()
+                except Exception:
+                    logger.exception("on_lockout 콜백 처리 중 오류")
+        return False, msg
 
     def start(self) -> None:
         """HTTP 서버를 백그라운드 스레드에서 시작한다 (LAN 전체에 노출)."""

@@ -57,16 +57,6 @@ _user32.GetSystemMetrics.restype  = ctypes.c_int
 _user32.GetSystemMetrics.argtypes = [ctypes.c_int]
 
 
-class _KBDLLHOOKSTRUCT(ctypes.Structure):
-    _fields_ = [
-        ("vkCode",      ctypes.wintypes.DWORD),
-        ("scanCode",    ctypes.wintypes.DWORD),
-        ("flags",       ctypes.wintypes.DWORD),
-        ("time",        ctypes.wintypes.DWORD),
-        ("dwExtraInfo", ctypes.c_size_t),   # ULONG_PTR (포인터 크기)
-    ]
-
-
 _HOOKPROC = ctypes.WINFUNCTYPE(
     ctypes.c_long,
     ctypes.c_int,
@@ -167,6 +157,10 @@ class BlockOverlay:
                     # WebAuthServer 스레드에서 인증 성공 시 큐로 전달됨.
                     logger.info("[큐 수신] web-unlock 이벤트")
                     self._on_web_unlock()
+                elif event == "auth-locked":
+                    # 연속 실패로 코드가 무효화됨 → QR 패널을 요청 버튼 상태로 즉시 되돌림.
+                    logger.info("[큐 수신] auth-locked 이벤트")
+                    self._on_auth_locked()
         except queue.Empty:
             pass
         finally:
@@ -222,7 +216,7 @@ class BlockOverlay:
         self._active = True
         self._reason = reason
         self._build_ui()
-        # self._install_kb_hook()  # TODO: 테스트 완료 후 주석 해제
+        self._install_kb_hook()
 
     def _hide(self):
         """
@@ -233,7 +227,7 @@ class BlockOverlay:
         활성 해제 코드도 함께 무효화하여 오버레이가 닫힌 뒤 재인증을 막는다.
         """
         self._active = False
-        # self._uninstall_kb_hook()  # TODO: 테스트 완료 후 주석 해제
+        self._uninstall_kb_hook()
         self._unlock_expires_at = 0.0
         if self._web_auth:
             self._web_auth.clear_code()
@@ -268,6 +262,20 @@ class BlockOverlay:
         if self.on_unlock:
             self.on_unlock(self._reason)
         self._hide()
+
+    def _on_auth_locked(self):
+        """
+        WebAuthServer 가 연속 실패로 코드를 무효화했을 때 ui_queue를 거쳐 호출된다.
+
+        QR 패널을 즉시 닫고 요청 버튼 상태로 되돌려, 학생이 새 코드를 발급받을 수
+        있도록 한다. 오버레이 자체는 닫지 않는다 (인증 실패는 차단 해제 사유가 아님).
+        """
+        if not self._active or self._unlock_expires_at == 0.0:
+            return
+        logger.warning("[인증 잠김] 연속 실패로 코드 무효화 → 요청 버튼으로 복귀")
+        self._unlock_expires_at = 0.0
+        # web_auth는 이미 _validate 안에서 _current_code = None 처리됨.
+        self._build_request_button()
 
     def _build_ui(self):
         """
@@ -561,33 +569,39 @@ class BlockOverlay:
         self.root.after(500, self._enforce_topmost)
 
     # ──────────────────────────────────────────
-    # 키보드 훅 (Alt+Tab / Win 키 차단)
+    # 키보드 훅 (오버레이 활성 중 모든 키 입력 차단)
     # ──────────────────────────────────────────
 
     def _install_kb_hook(self):
-        """Alt+Tab, Alt+F4, Win 키를 차단하는 저수준 키보드 훅을 설치한다."""
-        VK_TAB  = 0x09
-        VK_F4   = 0x73
-        VK_LWIN = 0x5B
-        VK_RWIN = 0x5C
-        VK_MENU = 0x12  # Alt
+        """
+        오버레이가 표시된 동안 모든 키보드 입력을 차단한다.
 
+        설계 의도:
+            오버레이가 화면 전체를 덮은 상태에서는 학생이 어떤 앱과도 상호작용할 수
+            없으므로 키보드 입력이 의미를 가지는 곳이 없다. 따라서 특정 단축키만
+            골라 막는 대신 모든 키를 차단해 알려지지 않은 우회 단축키(신규 Win11
+            단축키, 보조 입력 도구 등)까지 일괄 봉쇄한다. 오버레이가 닫히면
+            _uninstall_kb_hook()이 훅을 제거해 키보드는 즉시 정상 동작한다.
+
+            마우스는 막지 않는다 — "해제 요청" 버튼 클릭이 필요하기 때문이다.
+
+        한계:
+            Ctrl+Alt+Del 은 Windows 보안 화면을 거치는 OS 레벨 단축키라 user-mode
+            훅으로 차단할 수 없다. 의도적으로 백도어 역할을 하므로 디버깅 시
+            python.exe 강제 종료 경로로 활용한다. 진정한 방어를 위해선 서비스화 +
+            UAC + Group Policy 수준의 조치가 필요하다.
+        """
         def _handler(nCode, wParam, lParam):
             if nCode >= 0:
-                kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
-                vk = kb.vkCode
-                alt = bool(_user32.GetAsyncKeyState(VK_MENU) & 0x8000)
-                if alt and vk in (VK_TAB, VK_F4):
-                    return 1  # 차단: CallNextHookEx 호출 생략
-                if vk in (VK_LWIN, VK_RWIN):
-                    return 1  # Win 키 차단 (Win+D, Win+Tab 등 우회 방지)
+                # 키 종류와 무관하게 무조건 차단 — CallNextHookEx 호출 생략.
+                return 1
             return _user32.CallNextHookEx(self._kb_hook, nCode, wParam, lParam)
 
         self._kb_hook_func = _HOOKPROC(_handler)
         WH_KEYBOARD_LL = 13
         self._kb_hook = _user32.SetWindowsHookExA(WH_KEYBOARD_LL, self._kb_hook_func, None, 0)
         if self._kb_hook:
-            logger.info("키보드 훅 설치 완료 (Alt+Tab, Alt+F4, Win 키 차단)")
+            logger.info("키보드 훅 설치 완료 (전체 차단 — Ctrl+Alt+Del 제외)")
         else:
             logger.warning("키보드 훅 설치 실패")
 
