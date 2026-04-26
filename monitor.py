@@ -4,6 +4,8 @@ monitor.py
 PaddleOCR → EasyOCR 로 교체
 """
 
+import ctypes
+import ctypes.wintypes
 import time
 import threading
 import logging
@@ -16,6 +18,12 @@ import psutil
 from config import Config
 
 logger = logging.getLogger(__name__)
+
+# 포커스 창 좌표 캡처 시 사용 — main.py에서 Per-Monitor-V2 DPI 인식을
+# 켜뒀으므로 GetWindowRect 결과는 mss의 grab 좌표와 일치하는 물리 픽셀이다.
+_user32 = ctypes.windll.user32
+_user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.wintypes.RECT)]
+_user32.GetWindowRect.restype  = ctypes.wintypes.BOOL
 
 
 class ScreenMonitor:
@@ -124,15 +132,40 @@ class ScreenMonitor:
             (hwnd, pid) 튜플. 취득 실패 시 (None, None).
         """
         try:
-            import ctypes
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            hwnd = _user32.GetForegroundWindow()
             if not hwnd:
                 return None, None
             pid = ctypes.c_ulong()
-            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             return hwnd, pid.value
-        except:
+        except OSError:
             return None, None
+
+    def _get_window_rect(self, hwnd: int | None) -> tuple[int, int, int, int] | None:
+        """
+        포커스 창의 화면 좌표 영역을 (left, top, width, height)로 반환한다.
+
+        Win32 GetWindowRect는 DWM 보이지 않는 테두리(invisible frame)를 포함하지만
+        OCR 캡처에서는 약간 더 큰 영역도 무해하므로 그대로 사용한다.
+        창이 최소화되었거나 화면 밖에 있는 경우(좌표가 -32000 등)에는 None을 반환하여
+        호출 측이 전체 화면 캡처로 폴백하도록 한다.
+
+        Returns:
+            (left, top, width, height) 튜플 또는 None.
+        """
+        if not hwnd:
+            return None
+        rect = ctypes.wintypes.RECT()
+        if not _user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+        width  = rect.right - rect.left
+        height = rect.bottom - rect.top
+        # 최소화/오프스크린/이상 좌표 필터링 — 비정상 값이면 폴백을 유도한다.
+        if width < 100 or height < 100:
+            return None
+        if rect.left < -10000 or rect.top < -10000:
+            return None
+        return rect.left, rect.top, width, height
 
     def _get_process_name(self, pid: int | None) -> str:
         """PID로 실행 파일명(예: 'Code.exe')을 반환한다. 실패 시 ""."""
@@ -179,7 +212,7 @@ class ScreenMonitor:
         if proc_name:
             result = self._check_process_blacklist(proc_name)
             if result:
-                screenshot = self._capture_screen()
+                screenshot = self._capture_screen(target_hwnd)
                 self.callback("PROCESS_MATCH", result, screenshot, target_hwnd, target_pid)
                 return
 
@@ -196,7 +229,7 @@ class ScreenMonitor:
 
         result = self._check_window_title(title)
         if result:
-            screenshot = self._capture_screen()
+            screenshot = self._capture_screen(target_hwnd)
             # 창 타이틀 일치 → LLM 없이 즉시 차단 콜백 호출
             self.callback("TITLE_MATCH", result, screenshot, target_hwnd, target_pid)
             return
@@ -205,7 +238,8 @@ class ScreenMonitor:
         # OCR 캡처 직전에 포커스를 다시 스냅샷한다.
         # (타이틀 검사와 OCR 사이에 사용자가 창을 전환했을 수 있음)
         target_hwnd, target_pid = self._get_current_focus_info()
-        screenshot = self._capture_screen()
+        # ROI 캡처: 포커스 창의 좌표만 캡처하여 OCR 부하/오탐을 줄인다.
+        screenshot = self._capture_screen(target_hwnd)
 
         url_text, body_text = self._split_zones(screenshot)
 
@@ -264,18 +298,34 @@ class ScreenMonitor:
                 return f"창 타이틀 감지: '{keyword}' in '{title}'"
         return None
 
-    def _capture_screen(self) -> np.ndarray:
+    def _capture_screen(self, hwnd: int | None = None) -> np.ndarray:
         """
-        주 모니터(monitors[1])의 전체 화면을 캡처하여 BGR 이미지로 반환한다.
+        지정된 창의 영역(ROI)만 캡처해 BGR 이미지로 반환한다.
 
-        mss는 BGRA 형식으로 캡처하므로 cv2로 BGR로 변환한다.
+        ROI 캡처의 이점:
+            - 픽셀 수 감소 → EasyOCR 호출 시간 ↓
+            - 작업표시줄·알림 등 다른 영역의 텍스트가 OCR 결과에 섞이지 않아 오탐 ↓
+            - 창 상단(주소창)을 항상 안정적으로 포함하므로 URL 영역 감지 정확도 ↑
+
+        hwnd가 None이거나 GetWindowRect 결과가 비정상이면(최소화/오프스크린)
+        주 모니터(monitors[1]) 전체를 캡처하는 기존 동작으로 폴백한다.
+        mss는 BGRA로 캡처하므로 cv2로 BGR로 변환해 반환한다.
+
+        Args:
+            hwnd: 캡처 대상 창의 핸들. None이면 주 모니터 전체.
 
         Returns:
             BGR 형식의 numpy 배열 이미지.
         """
+        rect = self._get_window_rect(hwnd) if hwnd else None
         with mss.mss() as sct:
-            monitor = sct.monitors[1]  # 0은 전체 가상 스크린, 1은 첫 번째 물리 모니터
-            raw = sct.grab(monitor)
+            if rect is not None:
+                left, top, width, height = rect
+                region = {"left": left, "top": top, "width": width, "height": height}
+            else:
+                # monitors[0]은 가상 스크린(전체), monitors[1]이 첫 번째 물리 모니터.
+                region = sct.monitors[1]
+            raw = sct.grab(region)
             img = np.array(raw)
             return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
