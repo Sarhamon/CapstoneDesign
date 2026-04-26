@@ -127,15 +127,13 @@ class BlockOverlay:
     # 메인 스레드 루프 (main.py의 run()에서 호출)
     # ──────────────────────────────────────────
 
-    def run_mainloop(self, ui_queue: queue.Queue):
+    def run_mainloop(self):
         """
         Tkinter를 초기화하고 메인 이벤트 루프를 시작한다.
 
         이 메서드는 메인 스레드에서만 호출해야 하며,
         Tkinter 루프가 종료될 때까지 반환되지 않는다.
-
-        Args:
-            ui_queue: 서브 스레드로부터 UI 이벤트를 받을 큐.
+        UI 이벤트 큐는 __init__에서 주입된 self._ui_queue를 사용한다.
         """
         self.root = tk.Tk()
         self.root.withdraw()        # 초기엔 창을 숨겨 사용자에게 보이지 않게 한다.
@@ -167,6 +165,7 @@ class BlockOverlay:
                     self._hide()
                 elif event == "web-unlock":
                     # WebAuthServer 스레드에서 인증 성공 시 큐로 전달됨.
+                    logger.info("[큐 수신] web-unlock 이벤트")
                     self._on_web_unlock()
         except queue.Empty:
             pass
@@ -255,7 +254,15 @@ class BlockOverlay:
         오버레이가 이미 비활성화되었거나 현재 활성 코드가 없으면 (예: 만료 후 늦게 도착한
         요청) 무시한다. 정상 케이스에서는 on_unlock 콜백을 호출하고 오버레이를 닫는다.
         """
-        if not self._active or self._unlock_expires_at == 0.0:
+        if not self._active:
+            logger.warning(
+                "[웹 해제 무시] 오버레이 비활성 상태에서 web-unlock 도착 (active=False)"
+            )
+            return
+        if self._unlock_expires_at == 0.0:
+            logger.warning(
+                "[웹 해제 무시] 활성 코드 없음 — 코드 만료 후 도착했거나 race condition"
+            )
             return
         logger.info(f"[웹 해제 성공] 차단 원인: {self._reason}")
         if self.on_unlock:
@@ -277,26 +284,37 @@ class BlockOverlay:
         # 1) overrideredirect → geometry → deiconify 순서로 설정해야
         #    창이 표시될 때부터 올바른 크기로 나타난다.
         #    deiconify 이후에 geometry를 바꾸면 Windows가 무시하는 경우가 있다.
-        # 2) Tkinter geometry 설정 후 SetWindowPos로 물리 픽셀 기준 전체화면을 강제하여
-        #    DPI 스케일(125%, 150%) 환경에서도 항상 화면 전체를 덮는다.
-        HWND_TOPMOST   = -1
-        SWP_SHOWWINDOW = 0x0040
+        # 2) 가상 화면(SM_*VIRTUALSCREEN)으로 모든 모니터를 합친 영역을 사용하여
+        #    보조 모니터에 띄운 차단 대상도 가려진다.
+        # 3) main.py에서 SetProcessDpiAwarenessContext 로 Per-Monitor-V2 설정한
+        #    상태이므로 Tkinter geometry와 GetSystemMetrics 모두 물리 픽셀로 일치한다.
+        HWND_TOPMOST       = -1
+        SWP_SHOWWINDOW     = 0x0040
+        SM_CXSCREEN        = 0
+        SM_CYSCREEN        = 1
+        SM_XVIRTUALSCREEN  = 76
+        SM_YVIRTUALSCREEN  = 77
+        SM_CXVIRTUALSCREEN = 78
+        SM_CYVIRTUALSCREEN = 79
+
+        # 가상 화면 영역(모든 모니터 통합) — 좌표는 음수일 수 있다
+        # (예: 주 모니터 왼쪽에 보조 모니터가 배치된 경우 vx < 0).
+        vx = _user32.GetSystemMetrics(SM_XVIRTUALSCREEN)
+        vy = _user32.GetSystemMetrics(SM_YVIRTUALSCREEN)
+        vw = _user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)
+        vh = _user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)
 
         root.overrideredirect(True)
-        sw = root.winfo_screenwidth()
-        sh = root.winfo_screenheight()
-        root.geometry(f"{sw}x{sh}+0+0")  # Tkinter 논리 픽셀 기준
+        root.geometry(f"{vw}x{vh}+{vx}+{vy}")
         root.attributes("-topmost", True)
         root.attributes("-alpha", 0.93)
         root.configure(bg="#1a1a2e")
         root.deiconify()                  # 이미 올바른 크기/속성이 확정된 상태에서 표시
         root.update()                     # 모든 pending 이벤트 처리
 
-        # Win32 API로 물리 픽셀 기준 전체화면 강제 (DPI 스케일 무관)
-        phys_w = _user32.GetSystemMetrics(0)  # SM_CXSCREEN
-        phys_h = _user32.GetSystemMetrics(1)  # SM_CYSCREEN
-        hwnd   = root.winfo_id()
-        _user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, phys_w, phys_h, SWP_SHOWWINDOW)
+        # Win32 API로 가상 화면 전체에 대해 위치/크기 + topmost를 강제
+        hwnd = root.winfo_id()
+        _user32.SetWindowPos(hwnd, HWND_TOPMOST, vx, vy, vw, vh, SWP_SHOWWINDOW)
 
         root.lift()
         root.focus_force()
@@ -305,9 +323,16 @@ class BlockOverlay:
         if self._overlay_frame:
             self._overlay_frame.destroy()
 
-        # 중앙에 배치되는 컨텐츠 프레임
+        # 콘텐츠 프레임은 주 모니터 중앙에 배치한다.
+        # 가상 화면 좌표계에서 주 모니터의 중앙 = (-vx + prim_w/2, -vy + prim_h/2).
+        # relx/rely 0.5는 다중 모니터일 때 모니터 사이 공백에 떨어질 수 있어 사용 안 한다.
+        prim_w = _user32.GetSystemMetrics(SM_CXSCREEN)
+        prim_h = _user32.GetSystemMetrics(SM_CYSCREEN)
+        content_x = -vx + prim_w // 2
+        content_y = -vy + prim_h // 2
+
         self._overlay_frame = tk.Frame(root, bg="#1a1a2e")
-        self._overlay_frame.place(relx=0.5, rely=0.5, anchor="center")
+        self._overlay_frame.place(x=content_x, y=content_y, anchor="center")
         frame = self._overlay_frame
 
         # 경고 아이콘
@@ -399,9 +424,13 @@ class BlockOverlay:
             logger.error("WebAuthServer 미설정 — 해제 요청을 처리할 수 없습니다.")
             return
 
-        # 6자리 0-padding 숫자 코드. 자릿수에 맞춰 상한값 계산.
-        upper = 10 ** Config.UNLOCK_CODE_LENGTH
-        code = f"{secrets.randbelow(upper):0{Config.UNLOCK_CODE_LENGTH}d}"
+        # 항상 N자리, 앞자리는 1~9 인 숫자 코드.
+        # 0-패딩 방식(예: "015932")을 쓰면 사용자가 앞 0을 빼고 입력해 인증이 실패하는
+        # 사례가 자주 발생하므로 처음부터 앞자리에 0이 나오지 않게 범위를 좁힌다.
+        # 자릿수에 맞춰 [10^(N-1), 10^N) 범위에서 균등 추출.
+        lower = 10 ** (Config.UNLOCK_CODE_LENGTH - 1)
+        span  = 10 ** Config.UNLOCK_CODE_LENGTH - lower
+        code  = str(secrets.randbelow(span) + lower)
 
         ttl = Config.UNLOCK_CODE_TTL
         self._web_auth.set_code(code, ttl)

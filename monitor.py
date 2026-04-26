@@ -69,16 +69,49 @@ class ScreenMonitor:
 
     def _loop(self):
         """
-        Config.POLL_INTERVAL 간격으로 _check()를 반복 호출하는 메인 루프.
+        2단계 폴링 루프.
 
-        _check() 내부에서 예외가 발생해도 루프가 중단되지 않도록 try/except로 감싼다.
+        Config.FAST_POLL_INTERVAL 간격으로 포커스 창 정보(HWND/프로세스/타이틀)만
+        값싸게 조회하여, 창이 바뀐 순간 즉시 전체 검사(_check)를 트리거한다.
+        창이 그대로면 Config.POLL_INTERVAL 마다만 OCR을 포함한 전체 검사를 돌려
+        같은 창 안에서의 콘텐츠 변화도 주기적으로 잡는다.
+
+        설계 의도:
+            - GetForegroundWindow / GetWindowText 호출은 microsecond 수준이라
+              짧은 폴링을 해도 CPU 부하가 거의 없다.
+            - EasyOCR은 CPU 모드에서 비용이 크므로 호출 빈도를 최소화한다.
+            - _check() 내부에서 다시 포커스 정보를 조회하므로 약간의 중복이 있지만,
+              루프와 검사 로직을 분리해 두는 편이 단순하고 정확하다.
+
+        예외가 발생해도 루프가 중단되지 않도록 try/except로 감싼다.
         """
+        last_full_scan_at = 0.0
+        last_focus_key: tuple | None = None
+
         while self.running:
             try:
-                self._check()
+                # 저비용 포커스 스냅샷 — 변경 감지에만 사용한다.
+                hwnd, pid = self._get_current_focus_info()
+                proc_name = self._get_process_name(pid)
+                title = self._get_active_window_title()
+                focus_key = (hwnd, proc_name, title)
+
+                now = time.monotonic()
+                focus_changed = focus_key != last_focus_key
+                stale = (now - last_full_scan_at) >= Config.POLL_INTERVAL
+
+                if focus_changed or stale:
+                    if focus_changed and last_focus_key is not None:
+                        logger.debug(
+                            f"창 전환 감지 → 즉시 검사: "
+                            f"{proc_name or '?'} | {title or '(제목 없음)'}"
+                        )
+                    self._check()
+                    last_full_scan_at = now
+                    last_focus_key = focus_key
             except Exception as e:
                 logger.error(f"모니터링 루프 오류: {e}")
-            time.sleep(Config.POLL_INTERVAL)
+            time.sleep(Config.FAST_POLL_INTERVAL)
 
     def _get_current_focus_info(self) -> tuple[int | None, int | None]:
         """

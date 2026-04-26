@@ -6,6 +6,7 @@ FocusGuard 메인 컨트롤러
 - TITLE/PROCESS/URL 매칭은 LLM 생략 → 즉시 차단
 """
 
+import ctypes
 import os
 import logging
 import sys
@@ -14,6 +15,45 @@ import time
 import queue
 import numpy as np
 import psutil
+
+
+def _set_process_dpi_awareness() -> None:
+    """
+    프로세스를 Per-Monitor-Aware V2로 설정한다.
+
+    Tkinter 및 Win32 좌표 API가 일관된 물리 픽셀을 사용하도록 만든다.
+    설정하지 않으면 125%/150% 스케일링 PC에서 OS가 좌표를 가상화하여
+    오버레이가 화면 일부만 덮거나 위치가 어긋나는 문제가 발생한다.
+
+    Tkinter 루트(tk.Tk()) 생성 전에 반드시 호출되어야 한다.
+    Windows 버전별 API를 순차적으로 시도한다:
+        SetProcessDpiAwarenessContext  : Windows 10 1703+
+        SetProcessDpiAwareness         : Windows 8.1+
+        SetProcessDPIAware             : Windows Vista+
+    """
+    # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4 (특수 핸들 값)
+    try:
+        fn = ctypes.windll.user32.SetProcessDpiAwarenessContext
+        fn.argtypes = [ctypes.c_void_p]
+        fn.restype = ctypes.c_bool
+        if fn(ctypes.c_void_p(-4)):
+            return
+    except (AttributeError, OSError):
+        pass
+    try:
+        # PROCESS_PER_MONITOR_DPI_AWARE = 2
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
+# Tkinter / 모니터 폴링이 시작되기 전에 한 번만 호출.
+_set_process_dpi_awareness()
 
 os.makedirs("logs", exist_ok=True)
 
