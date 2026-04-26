@@ -21,3 +21,6 @@ requests
 
 # 프로세스 제어
 psutil
+
+# 웹 해제 인증 QR 코드 생성 (Pillow 의존)
+qrcode

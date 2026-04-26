@@ -10,8 +10,17 @@ import queue
 import logging
 import ctypes
 import ctypes.wintypes
+import secrets
+import time
 from datetime import datetime
+
+import qrcode
+from qrcode.constants import ERROR_CORRECT_M
+from qrcode.image.pil import PilImage
+from PIL import Image, ImageTk
+
 from config import Config
+from web_auth import WebAuthServer, get_lan_ip
 
 logger = logging.getLogger(__name__)
 
@@ -78,27 +87,39 @@ class BlockOverlay:
     오버레이 UI 구성:
         - 전체 화면 반투명 어두운 배경 (alpha=0.93)
         - 탐지 사유 텍스트
-        - 해제 코드 입력 버튼 → _open_code_dialog() 팝업
+        - "해제 요청" 버튼 → 클릭 시 랜덤 코드 + QR + 카운트다운으로 전환 (3분간)
         - 차단 시각 실시간 표시 (1초 갱신)
     """
 
-    def __init__(self, on_unlock_callback=None, ui_queue: queue.Queue | None = None):
+    def __init__(
+        self,
+        on_unlock_callback=None,
+        ui_queue: queue.Queue | None = None,
+        web_auth_server: WebAuthServer | None = None,
+    ):
         """
         Args:
-            on_unlock_callback: 해제 코드 인증 성공 시 호출할 콜백.
+            on_unlock_callback: 해제 인증 성공 시 호출할 콜백.
                 signature: (block_reason: str) -> None
             ui_queue: 서브 스레드에서 UI 이벤트를 전달할 큐.
-                      ("show", reason) 또는 ("hide",) 튜플을 넣는다.
+                      ("show", reason) / ("hide",) / ("web-unlock",) 튜플을 넣는다.
+            web_auth_server: 웹 기반 해제 인증을 담당하는 HTTP 서버.
+                             None이면 오버레이는 해제 불가 상태가 된다.
         """
         self.on_unlock = on_unlock_callback
         self._ui_queue = ui_queue
+        self._web_auth = web_auth_server
         self._active = False    # 오버레이 표시 여부 상태 플래그
         self._reason = ""       # 현재 표시 중인 차단 사유
 
         # Tkinter 위젯 — 반드시 메인 스레드에서 생성·접근해야 한다.
         self.root = None
         self._overlay_frame = None  # 오버레이 컨텐츠를 담는 프레임 위젯
+        self._action_frame = None   # 요청 버튼 / QR 패널을 담는 컨테이너
+        self._countdown_label = None  # 코드 만료까지 남은 시간 표시 레이블
         self._time_label = None     # 차단 시각을 표시하는 레이블 위젯
+        self._qr_photo = None       # QR ImageTk.PhotoImage (GC 방지)
+        self._unlock_expires_at = 0.0  # 현재 발급된 코드 만료 시각 (epoch)
         self._kb_hook = None        # 저수준 키보드 훅 핸들
         self._kb_hook_func = None   # 훅 콜백 (GC 방지용 참조 유지)
 
@@ -144,6 +165,9 @@ class BlockOverlay:
                     self._show(args[0])
                 elif event == "hide":
                     self._hide()
+                elif event == "web-unlock":
+                    # WebAuthServer 스레드에서 인증 성공 시 큐로 전달됨.
+                    self._on_web_unlock()
         except queue.Empty:
             pass
         finally:
@@ -207,15 +231,36 @@ class BlockOverlay:
 
         오버레이 프레임을 destroy()하고 루트 창을 withdraw()하여
         작업 표시줄에서도 사라지게 한다.
+        활성 해제 코드도 함께 무효화하여 오버레이가 닫힌 뒤 재인증을 막는다.
         """
         self._active = False
         # self._uninstall_kb_hook()  # TODO: 테스트 완료 후 주석 해제
+        self._unlock_expires_at = 0.0
+        if self._web_auth:
+            self._web_auth.clear_code()
+        self._qr_photo = None
+        self._countdown_label = None
+        self._action_frame = None
         if self._overlay_frame:
             self._overlay_frame.destroy()
             self._overlay_frame = None
         if self.root:
             self.root.overrideredirect(False)
             self.root.withdraw()
+
+    def _on_web_unlock(self):
+        """
+        WebAuthServer 스레드에서 인증 성공 시 ui_queue를 거쳐 메인 스레드에서 호출된다.
+
+        오버레이가 이미 비활성화되었거나 현재 활성 코드가 없으면 (예: 만료 후 늦게 도착한
+        요청) 무시한다. 정상 케이스에서는 on_unlock 콜백을 호출하고 오버레이를 닫는다.
+        """
+        if not self._active or self._unlock_expires_at == 0.0:
+            return
+        logger.info(f"[웹 해제 성공] 차단 원인: {self._reason}")
+        if self.on_unlock:
+            self.on_unlock(self._reason)
+        self._hide()
 
     def _build_ui(self):
         """
@@ -290,27 +335,12 @@ class BlockOverlay:
         ).pack(pady=(0, 30))
 
         # 시각적 구분선
-        tk.Frame(frame, bg="#e94560", height=2, width=500).pack(pady=(0, 30))
+        tk.Frame(frame, bg="#e94560", height=2, width=500).pack(pady=(0, 24))
 
-        # 해제 코드 안내 텍스트
-        tk.Label(
-            frame,
-            text="교수자로부터 해제 코드를 받아 입력하세요.",
-            font=("맑은 고딕", 12),
-            fg="#c0c0c0", bg="#1a1a2e",
-        ).pack(pady=(0, 16))
-
-        # 해제 코드 입력 팝업을 여는 버튼
-        tk.Button(
-            frame,
-            text="🔓  해제 코드 입력",
-            font=("맑은 고딕", 13, "bold"),
-            bg="#0f3460", fg="#ffffff",
-            activebackground="#1a5276",
-            relief="flat", padx=24, pady=12,
-            cursor="hand2",
-            command=self._open_code_dialog,
-        ).pack()
+        # 액션 영역: 초기에는 "해제 요청" 버튼, 클릭 시 QR + 코드 + 카운트다운으로 전환된다.
+        self._action_frame = tk.Frame(frame, bg="#1a1a2e")
+        self._action_frame.pack()
+        self._build_request_button()
 
         # 차단 시각 표시 레이블 — _update_time()이 1초마다 갱신한다.
         self._time_label = tk.Label(
@@ -321,6 +351,165 @@ class BlockOverlay:
         self._time_label.pack(pady=(24, 0))
         self._update_time()
         self._enforce_topmost()
+
+    def _clear_action_frame(self):
+        """액션 영역의 모든 자식 위젯을 제거한다 (상태 전환 시 호출)."""
+        if not self._action_frame:
+            return
+        for child in self._action_frame.winfo_children():
+            child.destroy()
+
+    def _build_request_button(self):
+        """
+        초기/만료 상태의 액션 영역을 구성한다.
+
+        안내 문구와 "해제 요청" 버튼을 표시한다. 버튼 클릭 시 _request_unlock()이
+        랜덤 코드를 발급하고 액션 영역을 QR 패널로 전환한다.
+        """
+        self._clear_action_frame()
+        if not self._action_frame:
+            return
+
+        tk.Label(
+            self._action_frame,
+            text="해제하려면 교수자에게 요청하세요.",
+            font=("맑은 고딕", 12),
+            fg="#c0c0c0", bg="#1a1a2e",
+        ).pack(pady=(0, 16))
+
+        tk.Button(
+            self._action_frame,
+            text="🔓  해제 요청",
+            font=("맑은 고딕", 13, "bold"),
+            bg="#0f3460", fg="#ffffff",
+            activebackground="#1a5276",
+            relief="flat", padx=24, pady=12,
+            cursor="hand2",
+            command=self._request_unlock,
+        ).pack()
+
+    def _request_unlock(self):
+        """
+        "해제 요청" 버튼 클릭 시 호출된다.
+
+        Config.UNLOCK_CODE_LENGTH 자릿수의 랜덤 숫자 코드를 생성하고
+        WebAuthServer에 등록한 뒤, QR(LAN URL) + 코드 + 카운트다운 패널로 전환한다.
+        """
+        if self._web_auth is None:
+            logger.error("WebAuthServer 미설정 — 해제 요청을 처리할 수 없습니다.")
+            return
+
+        # 6자리 0-padding 숫자 코드. 자릿수에 맞춰 상한값 계산.
+        upper = 10 ** Config.UNLOCK_CODE_LENGTH
+        code = f"{secrets.randbelow(upper):0{Config.UNLOCK_CODE_LENGTH}d}"
+
+        ttl = Config.UNLOCK_CODE_TTL
+        self._web_auth.set_code(code, ttl)
+        self._unlock_expires_at = time.time() + ttl
+
+        url = f"http://{get_lan_ip()}:{Config.WEB_AUTH_PORT}/"
+        logger.info(f"[해제 요청] 코드 발급 (TTL {ttl}s) | URL: {url}")
+        self._show_qr_panel(url, code)
+
+    def _show_qr_panel(self, url: str, code: str):
+        """QR 코드, 해제 코드, 남은 시간 카운트다운을 액션 영역에 그린다."""
+        self._clear_action_frame()
+        if not self._action_frame:
+            return
+
+        tk.Label(
+            self._action_frame,
+            text="교수자가 폰으로 QR을 스캔한 뒤, 아래 코드를 입력하면 해제됩니다.",
+            font=("맑은 고딕", 12),
+            fg="#c0c0c0", bg="#1a1a2e",
+        ).pack(pady=(0, 12))
+
+        # QR PhotoImage는 인스턴스 속성으로 보관해야 GC되지 않는다.
+        self._qr_photo = self._make_qr_photo(url)
+        tk.Label(
+            self._action_frame,
+            image=self._qr_photo,
+            bg="#ffffff", bd=6,
+        ).pack(pady=(0, 8))
+
+        tk.Label(
+            self._action_frame,
+            text=url,
+            font=("Consolas", 11),
+            fg="#888899", bg="#1a1a2e",
+        ).pack(pady=(0, 14))
+
+        tk.Label(
+            self._action_frame,
+            text="해제 코드",
+            font=("맑은 고딕", 10),
+            fg="#a8a8b3", bg="#1a1a2e",
+        ).pack()
+        tk.Label(
+            self._action_frame,
+            text=code,
+            font=("Consolas", 32, "bold"),
+            fg="#ffffff", bg="#1a1a2e",
+        ).pack(pady=(0, 6))
+
+        self._countdown_label = tk.Label(
+            self._action_frame,
+            text="",
+            font=("맑은 고딕", 11),
+            fg="#a8a8b3", bg="#1a1a2e",
+        )
+        self._countdown_label.pack()
+        self._update_countdown()
+
+    def _update_countdown(self):
+        """
+        해제 코드 만료까지 남은 시간을 1초 간격으로 갱신한다.
+
+        만료 시 활성 코드를 무효화하고 액션 영역을 다시 "해제 요청" 버튼 상태로 되돌린다.
+        오버레이가 비활성화되었거나 카운트다운이 더 이상 필요 없으면 즉시 종료한다.
+        """
+        if not self._active or not self.root:
+            return
+        if self._unlock_expires_at == 0.0 or self._countdown_label is None:
+            return
+
+        remaining = int(self._unlock_expires_at - time.time())
+        if remaining <= 0:
+            logger.info("[해제 요청 만료] 코드 무효화, 요청 버튼 복귀")
+            self._unlock_expires_at = 0.0
+            if self._web_auth:
+                self._web_auth.clear_code()
+            self._build_request_button()
+            return
+
+        mins, secs = divmod(remaining, 60)
+        try:
+            self._countdown_label.config(text=f"남은 시간: {mins:02d}:{secs:02d}")
+        except tk.TclError:
+            # 카운트다운 도중 위젯이 destroy된 경우 (상태 전환 / hide 등)
+            return
+        self.root.after(1000, self._update_countdown)
+
+    @staticmethod
+    def _make_qr_photo(url: str, size: int = 220) -> ImageTk.PhotoImage:
+        """주어진 URL을 담은 QR 코드를 ImageTk.PhotoImage로 반환한다."""
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=ERROR_CORRECT_M,
+            box_size=10,
+            border=2,
+        )
+        qr.add_data(url)
+        qr.make(fit=True)
+        # PilImage 팩토리를 명시해야 .get_image()로 실제 PIL.Image 인스턴스에 접근할 수 있다.
+        wrapper = qr.make_image(
+            image_factory=PilImage,
+            fill_color="black",
+            back_color="white",
+        )
+        pil_img = wrapper.get_image().convert("RGB")
+        pil_img = pil_img.resize((size, size), Image.Resampling.NEAREST)
+        return ImageTk.PhotoImage(pil_img)
 
     def _update_time(self):
         """
@@ -381,96 +570,3 @@ class BlockOverlay:
             self._kb_hook_func = None
             logger.info("키보드 훅 제거 완료")
 
-    # ──────────────────────────────────────────
-    # 해제 코드 입력 팝업
-    # ──────────────────────────────────────────
-
-    def _open_code_dialog(self):
-        """
-        해제 코드를 입력받는 모달 팝업 창을 생성한다.
-
-        grab_set()으로 포커스를 팝업에 고정하여 뒤에 있는 오버레이와 상호작용을 막는다.
-        WM_DELETE_WINDOW를 무효화하여 닫기 버튼으로 팝업이 사라지지 않게 한다.
-        올바른 코드 입력 시 오버레이를 숨기고 on_unlock 콜백을 호출한다.
-        """
-        dialog = tk.Toplevel(self.root)
-        dialog.title("해제 코드 입력")
-        dialog.attributes("-topmost", True)
-        dialog.resizable(False, False)
-        dialog.configure(bg="#16213e")
-        dialog.grab_set()  # 이 창에 포커스를 고정한다.
-
-        # 화면 중앙에 팝업을 배치한다.
-        w, h = 420, 260
-        sw = dialog.winfo_screenwidth()
-        sh = dialog.winfo_screenheight()
-        dialog.geometry(f"{w}x{h}+{(sw - w)//2}+{(sh - h)//2}")
-
-        frame = tk.Frame(dialog, bg="#16213e", padx=30, pady=24)
-        frame.pack(fill="both", expand=True)
-
-        tk.Label(
-            frame,
-            text="🔑  해제 코드를 입력하세요",
-            font=("맑은 고딕", 14, "bold"),
-            fg="#ffffff", bg="#16213e",
-        ).pack(pady=(0, 20))
-
-        code_var = tk.StringVar()
-        code_entry = tk.Entry(
-            frame,
-            textvariable=code_var,
-            font=("맑은 고딕", 18),
-            width=16,
-            bg="#0f3460", fg="#ffffff",
-            insertbackground="white",
-            relief="flat", bd=10,
-            justify="center",
-            show="●",          # 입력 문자를 마스킹하여 코드가 노출되지 않게 한다.
-        )
-        code_entry.pack(pady=(0, 8))
-        code_entry.focus_set()  # 팝업이 열리자마자 입력 필드에 커서를 위치시킨다.
-
-        # 잘못된 코드 입력 시 오류 메시지를 표시하는 레이블
-        error_label = tk.Label(
-            frame, text="",
-            font=("맑은 고딕", 11),
-            fg="#e94560", bg="#16213e",
-        )
-        error_label.pack(pady=(0, 16))
-
-        def attempt_unlock():
-            """
-            입력된 코드를 Config.UNLOCK_CODE와 비교하여 해제 여부를 결정한다.
-
-            성공: 팝업을 닫고, on_unlock 콜백을 호출하며, 오버레이를 숨긴다.
-            실패: 오류 메시지를 표시하고 입력 필드를 초기화한다.
-            """
-            code = code_var.get().strip()
-            if code == Config.UNLOCK_CODE:
-                logger.info(f"[해제 성공] 코드 인증 완료 | 차단 원인: {self._reason}")
-                dialog.destroy()
-                if self.on_unlock:
-                    self.on_unlock(self._reason)
-                self._hide()
-            else:
-                logger.warning(f"[해제 실패] 잘못된 코드 입력")
-                error_label.config(text="코드가 올바르지 않습니다. 다시 확인하세요.")
-                code_var.set("")
-                code_entry.focus_set()
-
-        tk.Button(
-            frame,
-            text="확인",
-            font=("맑은 고딕", 12, "bold"),
-            bg="#e94560", fg="#ffffff",
-            activebackground="#c0392b",
-            relief="flat", padx=20, pady=8,
-            cursor="hand2",
-            command=attempt_unlock,
-        ).pack()
-
-        # Enter 키로도 코드를 제출할 수 있도록 바인딩한다.
-        code_entry.bind("<Return>", lambda e: attempt_unlock())
-        # 팝업의 닫기 버튼을 비활성화하여 코드 없이 닫히지 않도록 한다.
-        dialog.protocol("WM_DELETE_WINDOW", lambda: None)

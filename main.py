@@ -22,6 +22,7 @@ from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
 from overlay import BlockOverlay
 from event_logger import EventLogger
+from web_auth import WebAuthServer
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -55,9 +56,16 @@ class FocusGuard:
         self.event_logger = EventLogger()           # 이벤트 기록기
         self.llm = get_llm_client()                 # LLM 클라이언트 (로컬 or 클라우드)
         self._ui_queue = queue.Queue()              # 모니터↔UI 간 이벤트 전달 큐
+
+        # 웹 기반 해제 인증 서버 (LAN 내 교수자 폰에서 QR 스캔으로 접근).
+        # WebAuthServer 콜백은 별도 스레드에서 호출되므로 ui_queue로 메인 스레드에 마샬링한다.
+        self.web_auth = WebAuthServer(port=Config.WEB_AUTH_PORT)
+        self.web_auth.set_on_success(lambda: self._ui_queue.put(("web-unlock",)))
+
         self.overlay = BlockOverlay(
             on_unlock_callback=self._on_unlock,
             ui_queue=self._ui_queue,
+            web_auth_server=self.web_auth,
         )
         self.monitor = ScreenMonitor(on_detect_callback=self._on_detect)
         # LLM 검증이 동시에 여러 번 실행되지 않도록 직렬화하는 잠금.
@@ -85,6 +93,9 @@ class FocusGuard:
         # 로컬 LLM 사용 시 첫 요청 지연을 줄이기 위해 워밍업을 실행한다.
         if not Config.USE_CLOUD_LLM and isinstance(self.llm, LocalLLMClient):
             self.llm.warmup()
+
+        # LAN HTTP 서버 시작 — 학생 PC가 0.0.0.0:WEB_AUTH_PORT 에서 listen 한다.
+        self.web_auth.start()
 
         self.monitor.start()
         # run_mainloop()은 Tkinter 루프가 종료될 때까지 반환되지 않는다.
@@ -185,14 +196,14 @@ class FocusGuard:
 
     def _on_unlock(self, block_reason: str):
         """
-        overlay.py에서 올바른 해제 코드 입력 시 호출되는 콜백.
+        overlay.py에서 웹 기반 해제 인증 성공 시 호출되는 콜백.
 
         해제 이벤트를 로그에 기록한다. 오버레이 숨김은 overlay.py 내부에서 처리된다.
 
         Args:
             block_reason: 해제된 차단의 원인 사유 문자열.
         """
-        self.event_logger.log_unlock_request(block_reason, "코드 인증 성공")
+        self.event_logger.log_unlock_request(block_reason, "웹 인증 성공")
         logger.info(f"[차단 해제] {block_reason}")
 
     # ──────────────────────────────────────────
