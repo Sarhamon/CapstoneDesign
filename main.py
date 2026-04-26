@@ -139,7 +139,7 @@ class FocusGuard:
 
         self.monitor.start()
         # run_mainloop()은 Tkinter 루프가 종료될 때까지 반환되지 않는다.
-        self.overlay.run_mainloop(self._ui_queue)
+        self.overlay.run_mainloop()
 
     # ──────────────────────────────────────────
     # 탐지 콜백
