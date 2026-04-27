@@ -26,32 +26,32 @@ logger = logging.getLogger(__name__)
 
 _user32 = ctypes.windll.user32
 
-# CallNextHookEx: lParam은 64비트 포인터 크기이므로 argtypes를 명시해야 OverflowError를 방지한다.
+
 _user32.CallNextHookEx.restype  = ctypes.c_long
 _user32.CallNextHookEx.argtypes = [
-    ctypes.c_void_p,          # HHOOK hhk
-    ctypes.c_int,             # int   nCode
-    ctypes.wintypes.WPARAM,   # WPARAM wParam
-    ctypes.wintypes.LPARAM,   # LPARAM lParam (64비트)
+    ctypes.c_void_p,
+    ctypes.c_int,
+    ctypes.wintypes.WPARAM,
+    ctypes.wintypes.LPARAM,
 ]
 _user32.SetWindowsHookExA.restype  = ctypes.c_void_p
 _user32.SetWindowsHookExA.argtypes = [
     ctypes.c_int,
-    ctypes.c_void_p,          # HOOKPROC (콜백 포인터)
-    ctypes.c_void_p,          # HINSTANCE hmod
-    ctypes.wintypes.DWORD,    # DWORD dwThreadId
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    ctypes.wintypes.DWORD,
 ]
 _user32.UnhookWindowsHookEx.restype  = ctypes.wintypes.BOOL
 _user32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
 _user32.SetWindowPos.restype  = ctypes.wintypes.BOOL
 _user32.SetWindowPos.argtypes = [
-    ctypes.c_void_p,        # HWND hWnd
-    ctypes.c_void_p,        # HWND hWndInsertAfter
-    ctypes.c_int,           # int X
-    ctypes.c_int,           # int Y
-    ctypes.c_int,           # int cx (너비)
-    ctypes.c_int,           # int cy (높이)
-    ctypes.wintypes.UINT,   # UINT uFlags
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.wintypes.UINT,
 ]
 _user32.GetSystemMetrics.restype  = ctypes.c_int
 _user32.GetSystemMetrics.argtypes = [ctypes.c_int]
@@ -99,23 +99,20 @@ class BlockOverlay:
         self.on_unlock = on_unlock_callback
         self._ui_queue = ui_queue
         self._web_auth = web_auth_server
-        self._active = False    # 오버레이 표시 여부 상태 플래그
-        self._reason = ""       # 현재 표시 중인 차단 사유
+        self._active = False
+        self._reason = ""
 
-        # Tkinter 위젯 — 반드시 메인 스레드에서 생성·접근해야 한다.
+
         self.root = None
-        self._overlay_frame = None  # 오버레이 컨텐츠를 담는 프레임 위젯
-        self._action_frame = None   # 요청 버튼 / QR 패널을 담는 컨테이너
-        self._countdown_label = None  # 코드 만료까지 남은 시간 표시 레이블
-        self._time_label = None     # 차단 시각을 표시하는 레이블 위젯
-        self._qr_photo = None       # QR ImageTk.PhotoImage (GC 방지)
-        self._unlock_expires_at = 0.0  # 현재 발급된 코드 만료 시각 (epoch)
-        self._kb_hook = None        # 저수준 키보드 훅 핸들
-        self._kb_hook_func = None   # 훅 콜백 (GC 방지용 참조 유지)
+        self._overlay_frame = None
+        self._action_frame = None
+        self._countdown_label = None
+        self._time_label = None
+        self._qr_photo = None
+        self._unlock_expires_at = 0.0
+        self._kb_hook = None
+        self._kb_hook_func = None
 
-    # ──────────────────────────────────────────
-    # 메인 스레드 루프 (main.py의 run()에서 호출)
-    # ──────────────────────────────────────────
 
     def run_mainloop(self):
         """
@@ -126,10 +123,10 @@ class BlockOverlay:
         UI 이벤트 큐는 __init__에서 주입된 self._ui_queue를 사용한다.
         """
         self.root = tk.Tk()
-        self.root.withdraw()        # 초기엔 창을 숨겨 사용자에게 보이지 않게 한다.
+        self.root.withdraw()
         self.root.title("FocusGuard")
 
-        # 큐 폴링을 100ms 간격으로 시작한다.
+
         self._poll_queue()
 
         try:
@@ -154,23 +151,20 @@ class BlockOverlay:
                 elif event == "hide":
                     self._hide()
                 elif event == "web-unlock":
-                    # WebAuthServer 스레드에서 인증 성공 시 큐로 전달됨.
+
                     logger.info("[큐 수신] web-unlock 이벤트")
                     self._on_web_unlock()
                 elif event == "auth-locked":
-                    # 연속 실패로 코드가 무효화됨 → QR 패널을 요청 버튼 상태로 즉시 되돌림.
+
                     logger.info("[큐 수신] auth-locked 이벤트")
                     self._on_auth_locked()
         except queue.Empty:
             pass
         finally:
-            # root가 살아 있는 동안 100ms 후에 다시 이 메서드를 호출한다.
+
             if self.root:
                 self.root.after(100, self._poll_queue)
 
-    # ──────────────────────────────────────────
-    # Public (서브 스레드에서 호출 → 큐로 전달)
-    # ──────────────────────────────────────────
 
     def show(self, reason: str):
         """
@@ -198,9 +192,6 @@ class BlockOverlay:
         """오버레이가 현재 화면에 표시 중인지 반환한다."""
         return self._active
 
-    # ──────────────────────────────────────────
-    # 실제 UI 생성/제거 (메인 스레드에서만 실행)
-    # ──────────────────────────────────────────
 
     def _show(self, reason: str):
         """
@@ -274,7 +265,7 @@ class BlockOverlay:
             return
         logger.warning("[인증 잠김] 연속 실패로 코드 무효화 → 요청 버튼으로 복귀")
         self._unlock_expires_at = 0.0
-        # web_auth는 이미 _validate 안에서 _current_code = None 처리됨.
+
         self._build_request_button()
 
     def _build_ui(self):
@@ -284,18 +275,11 @@ class BlockOverlay:
         전체 화면 / topmost / 반투명으로 설정하여 다른 창 위에 고정된다.
         WM_DELETE_WINDOW 이벤트를 무효화하여 Alt+F4로 닫히지 않도록 한다.
         """
-        # run_mainloop() 이후에만 호출되므로 root는 반드시 초기화되어 있다.
+
         assert self.root is not None
         root = self.root
 
-        # ── 전체화면 설정 순서 ──
-        # 1) overrideredirect → geometry → deiconify 순서로 설정해야
-        #    창이 표시될 때부터 올바른 크기로 나타난다.
-        #    deiconify 이후에 geometry를 바꾸면 Windows가 무시하는 경우가 있다.
-        # 2) 가상 화면(SM_*VIRTUALSCREEN)으로 모든 모니터를 합친 영역을 사용하여
-        #    보조 모니터에 띄운 차단 대상도 가려진다.
-        # 3) main.py에서 SetProcessDpiAwarenessContext 로 Per-Monitor-V2 설정한
-        #    상태이므로 Tkinter geometry와 GetSystemMetrics 모두 물리 픽셀로 일치한다.
+
         HWND_TOPMOST       = -1
         SWP_SHOWWINDOW     = 0x0040
         SM_CXSCREEN        = 0
@@ -305,8 +289,7 @@ class BlockOverlay:
         SM_CXVIRTUALSCREEN = 78
         SM_CYVIRTUALSCREEN = 79
 
-        # 가상 화면 영역(모든 모니터 통합) — 좌표는 음수일 수 있다
-        # (예: 주 모니터 왼쪽에 보조 모니터가 배치된 경우 vx < 0).
+
         vx = _user32.GetSystemMetrics(SM_XVIRTUALSCREEN)
         vy = _user32.GetSystemMetrics(SM_YVIRTUALSCREEN)
         vw = _user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)
@@ -317,23 +300,21 @@ class BlockOverlay:
         root.attributes("-topmost", True)
         root.attributes("-alpha", 0.93)
         root.configure(bg="#1a1a2e")
-        root.deiconify()                  # 이미 올바른 크기/속성이 확정된 상태에서 표시
-        root.update()                     # 모든 pending 이벤트 처리
+        root.deiconify()
+        root.update()
 
-        # Win32 API로 가상 화면 전체에 대해 위치/크기 + topmost를 강제
+
         hwnd = root.winfo_id()
         _user32.SetWindowPos(hwnd, HWND_TOPMOST, vx, vy, vw, vh, SWP_SHOWWINDOW)
 
         root.lift()
         root.focus_force()
 
-        # 이전에 표시된 오버레이 프레임이 있으면 제거 후 새로 생성한다.
+
         if self._overlay_frame:
             self._overlay_frame.destroy()
 
-        # 콘텐츠 프레임은 주 모니터 중앙에 배치한다.
-        # 가상 화면 좌표계에서 주 모니터의 중앙 = (-vx + prim_w/2, -vy + prim_h/2).
-        # relx/rely 0.5는 다중 모니터일 때 모니터 사이 공백에 떨어질 수 있어 사용 안 한다.
+
         prim_w = _user32.GetSystemMetrics(SM_CXSCREEN)
         prim_h = _user32.GetSystemMetrics(SM_CYSCREEN)
         content_x = -vx + prim_w // 2
@@ -343,13 +324,13 @@ class BlockOverlay:
         self._overlay_frame.place(x=content_x, y=content_y, anchor="center")
         frame = self._overlay_frame
 
-        # 경고 아이콘
+
         tk.Label(
             frame, text="🚫",
             font=("Arial", 64), bg="#1a1a2e",
         ).pack(pady=(0, 10))
 
-        # 제목 레이블
+
         tk.Label(
             frame,
             text="수업에 방해되는 화면이 감지되었습니다",
@@ -357,7 +338,7 @@ class BlockOverlay:
             fg="#e94560", bg="#1a1a2e",
         ).pack(pady=(0, 8))
 
-        # 탐지 사유 — 80자를 초과하면 말줄임표로 자른다.
+
         reason_short = self._reason[:80] + "..." if len(self._reason) > 80 else self._reason
         tk.Label(
             frame,
@@ -367,15 +348,15 @@ class BlockOverlay:
             wraplength=700,
         ).pack(pady=(0, 30))
 
-        # 시각적 구분선
+
         tk.Frame(frame, bg="#e94560", height=2, width=500).pack(pady=(0, 24))
 
-        # 액션 영역: 초기에는 "해제 요청" 버튼, 클릭 시 QR + 코드 + 카운트다운으로 전환된다.
+
         self._action_frame = tk.Frame(frame, bg="#1a1a2e")
         self._action_frame.pack()
         self._build_request_button()
 
-        # 차단 시각 표시 레이블 — _update_time()이 1초마다 갱신한다.
+
         self._time_label = tk.Label(
             frame, text="",
             font=("맑은 고딕", 11),
@@ -432,10 +413,7 @@ class BlockOverlay:
             logger.error("WebAuthServer 미설정 — 해제 요청을 처리할 수 없습니다.")
             return
 
-        # 항상 N자리, 앞자리는 1~9 인 숫자 코드.
-        # 0-패딩 방식(예: "015932")을 쓰면 사용자가 앞 0을 빼고 입력해 인증이 실패하는
-        # 사례가 자주 발생하므로 처음부터 앞자리에 0이 나오지 않게 범위를 좁힌다.
-        # 자릿수에 맞춰 [10^(N-1), 10^N) 범위에서 균등 추출.
+
         lower = 10 ** (Config.UNLOCK_CODE_LENGTH - 1)
         span  = 10 ** Config.UNLOCK_CODE_LENGTH - lower
         code  = str(secrets.randbelow(span) + lower)
@@ -461,7 +439,7 @@ class BlockOverlay:
             fg="#c0c0c0", bg="#1a1a2e",
         ).pack(pady=(0, 12))
 
-        # QR PhotoImage는 인스턴스 속성으로 보관해야 GC되지 않는다.
+
         self._qr_photo = self._make_qr_photo(url)
         tk.Label(
             self._action_frame,
@@ -523,7 +501,7 @@ class BlockOverlay:
         try:
             self._countdown_label.config(text=f"남은 시간: {mins:02d}:{secs:02d}")
         except tk.TclError:
-            # 카운트다운 도중 위젯이 destroy된 경우 (상태 전환 / hide 등)
+
             return
         self.root.after(1000, self._update_countdown)
 
@@ -538,7 +516,7 @@ class BlockOverlay:
         )
         qr.add_data(url)
         qr.make(fit=True)
-        # PilImage 팩토리를 명시해야 .get_image()로 실제 PIL.Image 인스턴스에 접근할 수 있다.
+
         wrapper = qr.make_image(
             image_factory=PilImage,
             fill_color="black",
@@ -557,7 +535,7 @@ class BlockOverlay:
         if self._time_label and self._active and self.root:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self._time_label.config(text=f"차단 시각: {now}")
-            # after()는 Tkinter 메인 루프에서 실행되므로 스레드 안전하다.
+
             self.root.after(1000, self._update_time)
 
     def _enforce_topmost(self):
@@ -568,9 +546,6 @@ class BlockOverlay:
         self.root.attributes("-topmost", True)
         self.root.after(500, self._enforce_topmost)
 
-    # ──────────────────────────────────────────
-    # 키보드 훅 (오버레이 활성 중 모든 키 입력 차단)
-    # ──────────────────────────────────────────
 
     def _install_kb_hook(self):
         """
@@ -593,7 +568,7 @@ class BlockOverlay:
         """
         def _handler(nCode, wParam, lParam):
             if nCode >= 0:
-                # 키 종류와 무관하게 무조건 차단 — CallNextHookEx 호출 생략.
+
                 return 1
             return _user32.CallNextHookEx(self._kb_hook, nCode, wParam, lParam)
 
@@ -612,4 +587,3 @@ class BlockOverlay:
             self._kb_hook = None
             self._kb_hook_func = None
             logger.info("키보드 훅 제거 완료")
-

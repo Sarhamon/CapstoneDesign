@@ -14,10 +14,6 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 
-# ──────────────────────────────────────────────────────────────
-# 추상 베이스
-# ──────────────────────────────────────────────────────────────
-
 class LLMClient(ABC):
     """
     LLM 클라이언트 공통 인터페이스.
@@ -47,10 +43,6 @@ class LLMClient(ABC):
         pass
 
 
-# ──────────────────────────────────────────────────────────────
-# 로컬 Ollama (현재 사용)
-# ──────────────────────────────────────────────────────────────
-
 class LocalLLMClient(LLMClient):
     """
     Ollama 로컬 서버를 통해 LLM을 호출하는 클라이언트.
@@ -60,8 +52,7 @@ class LocalLLMClient(LLMClient):
     temperature=0.0으로 설정하여 매번 동일한 판단을 유도한다.
     """
 
-    # LLM에게 전달하는 시스템 역할 지시문.
-    # 반드시 BLOCK / ALLOW / UNSURE 세 단어 중 하나만 출력하도록 강제한다.
+
     SYSTEM_PROMPT = """당신은 수업 중 학생 화면의 콘텐츠를 분류하는 판단기입니다.
 명백한 차단 대상(게임 런처, SNS 앱 등)은 이미 걸러진 상태이므로,
 당신에게 오는 입력은 규칙만으로 판단하기 어려운 애매한 케이스입니다.
@@ -107,7 +98,7 @@ UNSURE — 판단 불가 (차단하지 않고 통과)
         Returns:
             "BLOCK" | "ALLOW" | "UNSURE"
         """
-        # LLM에 전달할 사용자 메시지를 구성한다.
+
         user_msg = f"""창 제목: {window_title or '없음'}
 URL: {url_text or '없음'}
 화면 텍스트: {ocr_text[:500] if ocr_text else '없음'}"""
@@ -118,10 +109,10 @@ URL: {url_text or '없음'}
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
-            "stream": False,          # 스트리밍 비활성화 — 응답 전체를 한 번에 수신한다.
+            "stream": False,
             "options": {
-                "temperature": 0.0,   # 0으로 고정하여 매번 동일한 판단을 보장한다.
-                "num_predict": 10,    # 짧은 응답(BLOCK/ALLOW/UNSURE)만 생성하도록 제한한다.
+                "temperature": 0.0,
+                "num_predict": 10,
             },
         }
 
@@ -132,12 +123,12 @@ URL: {url_text or '없음'}
                 timeout=Config.LLM_TIMEOUT,
             )
             resp.raise_for_status()
-            # 응답 본문에서 LLM이 생성한 텍스트를 추출하고 대문자로 정규화한다.
+
             raw = resp.json()["message"]["content"].strip().upper()
             return self._parse_response(raw)
 
         except requests.exceptions.Timeout:
-            # LLM 응답이 늦을 경우 차단하지 않고 통과시킨다.
+
             logger.warning("LLM 응답 타임아웃 → UNSURE 처리")
             return "UNSURE"
         except Exception as e:
@@ -179,10 +170,6 @@ URL: {url_text or '없음'}
             logger.error(f"LLM 워밍업 실패: {e}")
 
 
-# ──────────────────────────────────────────────────────────────
-# 클라우드 LLM (4월 말 이후 전환)
-# ──────────────────────────────────────────────────────────────
-
 class CloudLLMClient(LLMClient):
     """
     클라우드 LLM API를 사용하는 클라이언트 (미구현).
@@ -196,10 +183,6 @@ class CloudLLMClient(LLMClient):
     def analyze(self, window_title: str, url_text: str, ocr_text: str) -> str:
         raise NotImplementedError("클라우드 LLM은 4월 말 이후 구현 예정")
 
-
-# ──────────────────────────────────────────────────────────────
-# 팩토리 함수 — main.py에서 이 한 줄만 바꾸면 전환 완료
-# ──────────────────────────────────────────────────────────────
 
 def get_llm_client() -> LLMClient:
     """

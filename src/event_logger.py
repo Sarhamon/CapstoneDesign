@@ -24,7 +24,7 @@ class EventLogger:
     """
 
     def __init__(self):
-        # 로그 파일 경로를 설정하고, 디렉토리가 없으면 자동으로 생성한다.
+
         self.log_path = Path(Config.LOG_DIR) / "events.jsonl"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -43,7 +43,7 @@ class EventLogger:
         event = {
             "timestamp": datetime.now().isoformat(),
             "type": "BLOCK",
-            "stage": stage,          # TITLE_MATCH / URL_MATCH / KEYWORD_MATCH / LLM
+            "stage": stage,
             "reason": reason,
             "llm_result": llm_result,
         }
@@ -93,7 +93,7 @@ class EventLogger:
         """
         try:
             with open(self.log_path, "a", encoding="utf-8") as f:
-                # ensure_ascii=False: 한글이 이스케이프되지 않고 원문으로 저장된다.
+
                 f.write(json.dumps(event, ensure_ascii=False) + "\n")
         except Exception as e:
             logger.error(f"로그 저장 오류: {e}")

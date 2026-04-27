@@ -3,15 +3,24 @@
     "pythonPlatform": "Windows",
     "venvPath": ".",
     "include": [
-        "."
+        "src",
+        "anno"
     ],
     "exclude": [
         "**/node_modules",
         "**/.*/",
         "**/.*",
         "**/__pycache__",
-        "logs"
+        "**/logs"
     ],
     "reportMissingModuleSource": "none",
-    "reportMissingTypeStubs": "none"
+    "reportMissingTypeStubs": "none",
+    "executionEnvironments": [
+        {
+            "root": "src"
+        },
+        {
+            "root": "anno"
+        }
+    ]
 }

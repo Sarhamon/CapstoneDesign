@@ -19,8 +19,7 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-# 포커스 창 좌표 캡처 시 사용 — main.py에서 Per-Monitor-V2 DPI 인식을
-# 켜뒀으므로 GetWindowRect 결과는 mss의 grab 좌표와 일치하는 물리 픽셀이다.
+
 _user32 = ctypes.windll.user32
 _user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.wintypes.RECT)]
 _user32.GetWindowRect.restype  = ctypes.wintypes.BOOL
@@ -52,20 +51,19 @@ class ScreenMonitor:
         """
         self.callback = on_detect_callback
 
-        # EasyOCR 모델 초기화 — 한국어(ko)와 영어(en)를 동시에 인식한다.
-        # GPU 없이 CPU 모드로 실행하며, 첫 실행 시 모델 파일을 다운로드한다.
+
         logger.info("OCR 모델 초기화 중...")
         self.ocr = easyocr.Reader(["ko", "en"], gpu=False, verbose=False)
         logger.info("OCR 모델 초기화 완료")
 
-        self.running = False          # 모니터링 루프 실행 여부 플래그
-        self._thread = None           # 모니터링 백그라운드 스레드
-        self._last_window_title = ""  # 직전 폴링 주기의 창 제목 (변경 감지용)
+        self.running = False
+        self._thread = None
+        self._last_window_title = ""
 
     def start(self):
         """모니터링 백그라운드 스레드를 시작한다."""
         self.running = True
-        # daemon=True: 메인 스레드 종료 시 함께 종료되어 프로세스가 남지 않는다.
+
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         logger.info("모니터링 시작")
@@ -98,7 +96,7 @@ class ScreenMonitor:
 
         while self.running:
             try:
-                # 저비용 포커스 스냅샷 — 변경 감지에만 사용한다.
+
                 hwnd, pid = self._get_current_focus_info()
                 proc_name = self._get_process_name(pid)
                 title = self._get_active_window_title()
@@ -160,7 +158,7 @@ class ScreenMonitor:
             return None
         width  = rect.right - rect.left
         height = rect.bottom - rect.top
-        # 최소화/오프스크린/이상 좌표 필터링 — 비정상 값이면 폴백을 유도한다.
+
         if width < 100 or height < 100:
             return None
         if rect.left < -10000 or rect.top < -10000:
@@ -197,18 +195,16 @@ class ScreenMonitor:
         포커스 창 정보(hwnd, pid)는 탐지 직전에 스냅샷으로 기록하여,
         callback에서 정확한 프로세스를 종료할 수 있도록 전달한다.
         """
-        # 검사 시작 시점의 포커스 창 정보를 스냅샷으로 기록한다.
+
         target_hwnd, target_pid = self._get_current_focus_info()
 
-        # ── 0단계: 프로세스 화이트리스트 (최우선) ──
-        # proc_name 취득 성공 여부와 무관하게 화이트리스트를 먼저 평가한다.
+
         proc_name = self._get_process_name(target_pid)
         if self._is_process_whitelisted(proc_name):
             logger.debug(f"프로세스 화이트리스트 통과: {proc_name}")
             return
 
-        # ── 0단계: 프로세스 블랙리스트 ──
-        # 프로세스명을 확인한 경우에만 블랙리스트와 대조한다.
+
         if proc_name:
             result = self._check_process_blacklist(proc_name)
             if result:
@@ -216,13 +212,13 @@ class ScreenMonitor:
                 self.callback("PROCESS_MATCH", result, screenshot, target_hwnd, target_pid)
                 return
 
-        # ── 1단계: 창 타이틀 블랙리스트 검사 ──
+
         title = self._get_active_window_title()
         if title and title != self._last_window_title:
             logger.debug(f"활성 창: {title}")
             self._last_window_title = title
 
-        # 화이트리스트에 포함된 창이면 모든 검사를 건너뛴다.
+
         if self._is_whitelisted(title):
             logger.debug(f"화이트리스트 통과 (타이틀): {title}")
             return
@@ -230,34 +226,32 @@ class ScreenMonitor:
         result = self._check_window_title(title)
         if result:
             screenshot = self._capture_screen(target_hwnd)
-            # 창 타이틀 일치 → LLM 없이 즉시 차단 콜백 호출
+
             self.callback("TITLE_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
-        # ── 2·3단계: OCR 기반 URL / 콘텐츠 키워드 검사 ──
-        # OCR 캡처 직전에 포커스를 다시 스냅샷한다.
-        # (타이틀 검사와 OCR 사이에 사용자가 창을 전환했을 수 있음)
+
         target_hwnd, target_pid = self._get_current_focus_info()
-        # ROI 캡처: 포커스 창의 좌표만 캡처하여 OCR 부하/오탐을 줄인다.
+
         screenshot = self._capture_screen(target_hwnd)
 
         url_text, body_text = self._split_zones(screenshot)
 
-        # URL/본문 텍스트가 화이트리스트에 포함되면 통과한다.
+
         if self._is_whitelisted(url_text) or self._is_whitelisted(body_text):
             logger.debug(f"화이트리스트 통과 (OCR): {url_text or body_text}")
             return
 
-        # ── 2단계: URL 키워드 블랙리스트 ──
+
         result = self._check_url_keywords(url_text)
         if result:
             self.callback("URL_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
-        # ── 3단계: 본문 콘텐츠 키워드 ──
+
         result = self._check_content_keywords(body_text)
         if result:
-            # 키워드 조합 탐지는 main.py에서 LLM 검증 후 최종 차단 여부를 결정한다.
+
             self.callback("KEYWORD_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
@@ -323,7 +317,7 @@ class ScreenMonitor:
                 left, top, width, height = rect
                 region = {"left": left, "top": top, "width": width, "height": height}
             else:
-                # monitors[0]은 가상 스크린(전체), monitors[1]이 첫 번째 물리 모니터.
+
                 region = sct.monitors[1]
             raw = sct.grab(region)
             img = np.array(raw)
@@ -366,7 +360,7 @@ class ScreenMonitor:
             if img.size == 0:
                 return ""
             results = self.ocr.readtext(img, detail=1)
-            # detail=1: [(bbox, text, confidence), ...] 형식으로 반환된다.
+
             lines = [
                 text
                 for (_, text, conf) in results

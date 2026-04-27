@@ -159,11 +159,11 @@ class WebAuthServer:
                 return False, "해제 코드가 만료되었습니다."
 
             if secrets.compare_digest(submitted, self._current_code):
-                self._current_code = None  # 일회성 — 재사용 금지
+                self._current_code = None
                 self._failed_attempts = 0
                 return True, ""
 
-            # 실패 — 카운터 증가 후 임계값 도달 시 코드 무효화
+
             self._failed_attempts += 1
             remaining = self._max_failed_attempts - self._failed_attempts
             if remaining <= 0:
@@ -174,7 +174,7 @@ class WebAuthServer:
             else:
                 msg = f"잘못된 코드입니다. (남은 시도 {remaining}회)"
 
-        # 락 밖에서 콜백 호출 (콜백이 락을 다시 잡으려 할 가능성 배제)
+
         if triggered_lockout:
             logger.warning(
                 "[브루트포스 방어] 연속 실패 한도 초과 → 활성 코드 무효화"
@@ -208,9 +208,9 @@ class WebAuthServer:
         outer = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, format, *args):  # noqa: A002 - BaseHTTPRequestHandler 시그니처 유지
-                # 기본 stderr 로그를 logger로 우회. 파라미터명은 베이스 클래스와 동일하게 둔다
-                # (Pylance reportIncompatibleMethodOverride 회피 + 키워드 호출 호환성).
+            def log_message(self, format, *args):
+
+
                 logger.debug("HTTP %s - %s", self.address_string(), format % args)
 
             def _write(self, status: int, content_type: str, body: bytes) -> None:
