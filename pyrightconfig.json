@@ -13,6 +13,7 @@
         "**/__pycache__",
         "**/logs"
     ],
+    "typeCheckingMode": "basic",
     "reportMissingModuleSource": "none",
     "reportMissingTypeStubs": "none",
     "executionEnvironments": [
