@@ -27,6 +27,9 @@ class Config:
     UNLOCK_MAX_FAILED_ATTEMPTS: int = 5
 
 
+    KEYBOARD_BLOCK_ENABLED: bool = False
+
+
     USE_CLOUD_LLM: bool = False
 
 
