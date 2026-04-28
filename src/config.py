@@ -42,6 +42,12 @@ class Config:
     OCR_CONFIDENCE_THRESHOLD: float = 0.6
 
 
+    URL_OCR_CONFIDENCE_THRESHOLD: float = 0.35
+
+
+    URL_ZONE_RATIO: float = 0.12
+
+
     KEYWORD_THRESHOLD: int = 2
 
 
