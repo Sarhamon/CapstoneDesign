@@ -356,6 +356,9 @@ class Config:
 
         "gameple.co.kr",
         "playforum.net",
+
+        # 플래시 게임
+        "https://vidkidz.tistory.com/",
     ]
 
 
