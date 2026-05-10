@@ -29,6 +29,9 @@ class Config:
     UNLOCK_MAX_FAILED_ATTEMPTS: int = 5
 
 
+    KEYBOARD_BLOCK_ENABLED: bool = False
+
+
     USE_CLOUD_LLM: bool = False
 
 
@@ -39,6 +42,12 @@ class Config:
 
 
     OCR_CONFIDENCE_THRESHOLD: float = 0.6
+
+
+    URL_OCR_CONFIDENCE_THRESHOLD: float = 0.35
+
+
+    URL_ZONE_RATIO: float = 0.12
 
 
     KEYWORD_THRESHOLD: int = 2
@@ -350,6 +359,9 @@ class Config:
 
         "gameple.co.kr",
         "playforum.net",
+
+        # 플래시 게임
+        "https://vidkidz.tistory.com/",
     ]
 
 

@@ -207,7 +207,8 @@ class BlockOverlay:
         self._active = True
         self._reason = reason
         self._build_ui()
-        self._install_kb_hook()
+        if Config.KEYBOARD_BLOCK_ENABLED:
+            self._install_kb_hook()
 
     def _hide(self):
         """
@@ -218,7 +219,8 @@ class BlockOverlay:
         활성 해제 코드도 함께 무효화하여 오버레이가 닫힌 뒤 재인증을 막는다.
         """
         self._active = False
-        self._uninstall_kb_hook()
+        if Config.KEYBOARD_BLOCK_ENABLED:
+            self._uninstall_kb_hook()
         self._unlock_expires_at = 0.0
         if self._web_auth:
             self._web_auth.clear_code()
@@ -236,17 +238,13 @@ class BlockOverlay:
         """
         WebAuthServer 스레드에서 인증 성공 시 ui_queue를 거쳐 메인 스레드에서 호출된다.
 
-        오버레이가 이미 비활성화되었거나 현재 활성 코드가 없으면 (예: 만료 후 늦게 도착한
-        요청) 무시한다. 정상 케이스에서는 on_unlock 콜백을 호출하고 오버레이를 닫는다.
+        서버 측 _validate()에서 이미 만료 여부를 검증했으므로 여기서는 오버레이 활성
+        여부만 확인한다. _unlock_expires_at 재확인은 카운트다운 타이머와의 race condition
+        (마지막 1초 내 제출 시 타이머가 먼저 0으로 초기화)을 일으키므로 제거한다.
         """
         if not self._active:
             logger.warning(
                 "[웹 해제 무시] 오버레이 비활성 상태에서 web-unlock 도착 (active=False)"
-            )
-            return
-        if self._unlock_expires_at == 0.0:
-            logger.warning(
-                "[웹 해제 무시] 활성 코드 없음 — 코드 만료 후 도착했거나 race condition"
             )
             return
         logger.info(f"[웹 해제 성공] 차단 원인: {self._reason}")

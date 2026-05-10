@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 _user32 = ctypes.windll.user32
 _user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.wintypes.RECT)]
 _user32.GetWindowRect.restype  = ctypes.wintypes.BOOL
+_user32.GetWindowTextLengthW.argtypes = [ctypes.c_void_p]
+_user32.GetWindowTextLengthW.restype  = ctypes.c_int
+_user32.GetWindowTextW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+_user32.GetWindowTextW.restype  = ctypes.c_int
 
 
 class ScreenMonitor:
@@ -261,11 +265,23 @@ class ScreenMonitor:
         """
         현재 활성(포커스된) 창의 제목을 반환한다.
 
-        pygetwindow 호출 실패 시 빈 문자열을 반환하여 파이프라인을 계속 진행한다.
+        Win32 GetWindowTextW를 우선 사용하고, 실패 시 pygetwindow로 폴백한다.
 
         Returns:
             활성 창 제목 문자열. 창이 없거나 오류 시 "".
         """
+        try:
+            hwnd = _user32.GetForegroundWindow()
+            if hwnd:
+                length = _user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buf = ctypes.create_unicode_buffer(length + 1)
+                    _user32.GetWindowTextW(hwnd, buf, length + 1)
+                    title = buf.value
+                    if title:
+                        return title
+        except Exception:
+            pass
         try:
             win = gw.getActiveWindow()
             return win.title if win else ""
@@ -328,8 +344,10 @@ class ScreenMonitor:
         캡처 이미지를 URL 영역과 본문 영역으로 분할하고 각각 OCR을 수행한다.
 
         화면 높이 기준:
-            URL 영역  — 상단  0% ~ 8%  (브라우저 주소 표시줄 위치)
-            본문 영역 — 상단  8% ~ 85% (페이지 본문, 하단 작업 표시줄 제외)
+            URL 영역  — 상단  0% ~ URL_ZONE_RATIO  (브라우저 주소 표시줄 위치)
+            본문 영역 — 상단  URL_ZONE_RATIO ~ 85% (페이지 본문, 하단 작업 표시줄 제외)
+
+        URL 영역은 낮은 confidence threshold를 사용해 작은 텍스트도 최대한 포착한다.
 
         Args:
             img: BGR 형식의 전체 화면 이미지.
@@ -338,19 +356,21 @@ class ScreenMonitor:
             (url_text, body_text) — 각 영역의 OCR 결과 문자열 튜플.
         """
         h = img.shape[0]
-        url_zone  = img[0           : int(h * 0.08), :]
-        body_zone = img[int(h * 0.08): int(h * 0.85), :]
-        return self._ocr_to_text(url_zone), self._ocr_to_text(body_zone)
+        split = int(h * Config.URL_ZONE_RATIO)
+        url_zone  = img[0     : split, :]
+        body_zone = img[split : int(h * 0.85), :]
+        return (
+            self._ocr_to_text(url_zone, threshold=Config.URL_OCR_CONFIDENCE_THRESHOLD),
+            self._ocr_to_text(body_zone),
+        )
 
-    def _ocr_to_text(self, img: np.ndarray) -> str:
+    def _ocr_to_text(self, img: np.ndarray, threshold: float | None = None) -> str:
         """
         이미지 영역에 EasyOCR을 실행하여 텍스트를 추출한다.
 
-        Config.OCR_CONFIDENCE_THRESHOLD 미만의 인식 결과는 제외하여
-        오탐 가능성을 줄인다.
-
         Args:
             img: OCR을 수행할 BGR 이미지 영역.
+            threshold: 신뢰도 임계값. None이면 Config.OCR_CONFIDENCE_THRESHOLD 사용.
 
         Returns:
             신뢰도 임계값 이상의 텍스트를 공백으로 연결한 문자열.
@@ -359,12 +379,12 @@ class ScreenMonitor:
         try:
             if img.size == 0:
                 return ""
+            min_conf = threshold if threshold is not None else Config.OCR_CONFIDENCE_THRESHOLD
             results = self.ocr.readtext(img, detail=1)
-
             lines = [
                 text
                 for (_, text, conf) in results
-                if float(conf) >= Config.OCR_CONFIDENCE_THRESHOLD
+                if float(conf) >= min_conf
             ]
             return " ".join(lines)
         except Exception as e:
@@ -375,7 +395,8 @@ class ScreenMonitor:
         """
         URL 영역 텍스트가 URL_BLACKLIST의 키워드를 포함하는지 검사한다.
 
-        대소문자를 무시하고 부분 일치로 비교한다.
+        OCR이 URL을 "youtube .com /watch" 처럼 공백 섞인 형태로 읽는 경우를 대비해
+        원문과 공백 제거 버전 모두 검사한다.
 
         Args:
             url_text: 화면 상단 영역의 OCR 텍스트.
@@ -386,8 +407,10 @@ class ScreenMonitor:
         if not url_text:
             return None
         url_lower = url_text.lower()
+        url_compact = url_lower.replace(" ", "")
         for keyword in Config.URL_BLACKLIST:
-            if keyword.lower() in url_lower:
+            kw = keyword.lower()
+            if kw in url_lower or kw in url_compact:
                 return f"URL 키워드 감지: '{keyword}'"
         return None
 
