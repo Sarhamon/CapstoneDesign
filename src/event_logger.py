@@ -1,99 +1,169 @@
 """
 event_logger.py
-차단 이벤트 로컬 로그 저장
-- 현재: JSON 파일 저장
-- 추후: 클라우드 DB 전송으로 확장
+차단 이벤트 저장 레이어
+- 데이터 모델: BlockEvent / UnlockRequestEvent / AllowEvent (frozen dataclass)
+- Sink 추상화: EventSink → LocalJSONLSink (현재) / 추후 RemoteDBSink (Phase 2)
+- Facade: EventLogger — 종류별 헬퍼만 제공, 실제 저장은 sink가 담당
 """
 
 import json
 import logging
-import os
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any, ClassVar
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 
+def _now_iso() -> str:
+    return datetime.now().isoformat()
+
+
+@dataclass(frozen=True)
+class BlockEvent:
+    """규칙 기반 또는 LLM 검증으로 차단된 이벤트."""
+    stage: str
+    reason: str
+    llm_result: str = ""
+    timestamp: str = field(default_factory=_now_iso)
+
+    type: ClassVar[str] = "BLOCK"
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp,
+            "type": self.type,
+            "stage": self.stage,
+            "reason": self.reason,
+            "llm_result": self.llm_result,
+        }
+
+
+@dataclass(frozen=True)
+class UnlockRequestEvent:
+    """학생이 차단 해제 인증을 요청한 이벤트."""
+    block_reason: str
+    student_note: str
+    timestamp: str = field(default_factory=_now_iso)
+
+    type: ClassVar[str] = "UNLOCK_REQUEST"
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp,
+            "type": self.type,
+            "block_reason": self.block_reason,
+            "student_note": self.student_note,
+        }
+
+
+@dataclass(frozen=True)
+class AllowEvent:
+    """LLM이 ALLOW/UNSURE로 판단해 통과 처리된 이벤트."""
+    window_title: str
+    timestamp: str = field(default_factory=_now_iso)
+
+    type: ClassVar[str] = "ALLOW"
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp,
+            "type": self.type,
+            "window_title": self.window_title,
+        }
+
+
+Event = BlockEvent | UnlockRequestEvent | AllowEvent
+
+
+class EventSink(ABC):
+    """이벤트 저장 백엔드 공통 인터페이스.
+
+    현재는 LocalJSONLSink만 사용한다. Phase 2에서 RemoteDBSink/S3Sink가
+    추가되더라도 EventLogger가 알아야 하는 표면적은 write(event, screenshot) 한
+    곳뿐이다.
+
+    screenshot은 BLOCK 이벤트 시점의 화면 캡처(BGR np.ndarray)이며, sink 구현체가
+    별도 경로(S3 등)에 보존하거나 무시한다. 이벤트 dataclass 자체는 직렬화 가능한
+    메타데이터만 담아 JSON/DB 양쪽에서 재사용된다.
+    """
+
+    @abstractmethod
+    def write(self, event: Event, screenshot: Any = None) -> None:
+        ...
+
+
+class LocalJSONLSink(EventSink):
+    """이벤트를 JSONL 파일에 한 줄씩 누적 저장한다.
+
+    screenshot은 보존 비용(디스크 + 프라이버시)이 커서 무시한다. Phase 2에서
+    RemoteSink/S3Sink가 추가되면 그쪽에서 binary 보존을 담당한다.
+
+    쓰기 오류는 로깅만 하고 예외를 전파하지 않는다 — 로거 오류가 메인 모니터링
+    루프를 중단시키면 안 되기 때문이다.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def write(self, event: Event, screenshot: Any = None) -> None:
+        try:
+            with open(self.path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.error(f"로그 저장 오류: {e}")
+
+
 class EventLogger:
     """
-    FocusGuard 이벤트를 JSONL 파일에 기록하는 로거.
+    이벤트 종류별 헬퍼를 제공하는 얇은 facade.
 
-    각 이벤트는 JSON 한 줄(JSONL 형식)로 저장되며, 타임스탬프·종류·사유를 포함한다.
-    파일은 Config.LOG_DIR 디렉토리 안의 events.jsonl에 누적 저장된다.
+    실제 저장은 주입된 sink가 담당한다. sink를 생략하면 LocalJSONLSink가
+    기본값으로 사용되어 기존 동작과 동일하게 동작한다.
     """
 
-    def __init__(self):
+    def __init__(self, sink: EventSink | None = None):
+        if sink is None:
+            sink = LocalJSONLSink(Config.LOG_DIR / "events.jsonl")
+        self.sink = sink
 
-        self.log_path = Path(Config.LOG_DIR) / "events.jsonl"
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    def log_block(self, stage: str, reason: str, llm_result: str = ""):
-        """
-        차단 이벤트를 기록한다.
+    def log_block(
+        self,
+        stage: str,
+        reason: str,
+        llm_result: str = "",
+        screenshot: Any = None,
+    ) -> None:
+        """차단 이벤트를 기록한다.
 
         Args:
             stage: 탐지 단계 식별자.
-                   "TITLE_MATCH" | "URL_MATCH" | "KEYWORD_MATCH" |
-                   "WINDOW_CLOSE" | "PROCESS_KILL"
-            reason: 차단 원인을 설명하는 문자열 (예: 감지된 키워드, 창 제목 등).
+                "TITLE_MATCH" | "URL_MATCH" | "KEYWORD_MATCH" |
+                "WINDOW_CLOSE" | "PROCESS_KILL"
+            reason: 차단 원인 설명.
             llm_result: LLM 판정 결과 ("BLOCK" | "ALLOW" | "UNSURE").
-                        규칙 기반 즉시 차단 시에는 "RULE_BASED"를 전달한다.
+                규칙 기반 즉시 차단 시에는 "RULE_BASED"를 전달한다.
+            screenshot: 차단 시점의 화면 캡처 (BGR np.ndarray). sink가 보존
+                여부를 결정한다. LocalJSONLSink는 무시하고, Phase 2의
+                RemoteSink/S3Sink는 binary로 보존한다.
         """
-        event = {
-            "timestamp": datetime.now().isoformat(),
-            "type": "BLOCK",
-            "stage": stage,
-            "reason": reason,
-            "llm_result": llm_result,
-        }
-        self._write(event)
+        self.sink.write(
+            BlockEvent(stage=stage, reason=reason, llm_result=llm_result),
+            screenshot=screenshot,
+        )
         logger.info(f"[차단 이벤트] {stage} | {reason}")
 
-    def log_unlock_request(self, block_reason: str, student_note: str):
-        """
-        차단 해제 요청 이벤트를 기록한다.
-
-        Args:
-            block_reason: 이번 해제 요청의 원인이 된 차단 사유 문자열.
-            student_note: 해제 시 남기는 메모 (현재는 인증 결과 문자열을 전달).
-        """
-        event = {
-            "timestamp": datetime.now().isoformat(),
-            "type": "UNLOCK_REQUEST",
-            "block_reason": block_reason,
-            "student_note": student_note,
-        }
-        self._write(event)
+    def log_unlock_request(self, block_reason: str, student_note: str) -> None:
+        """차단 해제 요청 이벤트를 기록한다."""
+        self.sink.write(
+            UnlockRequestEvent(block_reason=block_reason, student_note=student_note)
+        )
         logger.info(f"[해제 요청] {student_note or '사유 없음'}")
 
-    def log_allow(self, window_title: str):
-        """
-        LLM이 ALLOW 또는 UNSURE로 판단하여 허용한 이벤트를 기록한다.
-
-        Args:
-            window_title: 허용된 창의 제목 또는 탐지 사유 문자열.
-        """
-        event = {
-            "timestamp": datetime.now().isoformat(),
-            "type": "ALLOW",
-            "window_title": window_title,
-        }
-        self._write(event)
-
-    def _write(self, event: dict):
-        """
-        이벤트 딕셔너리를 JSONL 파일에 한 줄로 추가한다.
-
-        파일 쓰기 오류가 발생해도 예외를 전파하지 않고 로그만 남겨,
-        로거 오류가 메인 모니터링 루프를 중단시키지 않도록 한다.
-
-        Args:
-            event: 기록할 이벤트 데이터 딕셔너리.
-        """
-        try:
-            with open(self.log_path, "a", encoding="utf-8") as f:
-
-                f.write(json.dumps(event, ensure_ascii=False) + "\n")
-        except Exception as e:
-            logger.error(f"로그 저장 오류: {e}")
+    def log_allow(self, window_title: str) -> None:
+        """LLM이 ALLOW/UNSURE로 판단해 통과 처리된 이벤트를 기록한다."""
+        self.sink.write(AllowEvent(window_title=window_title))

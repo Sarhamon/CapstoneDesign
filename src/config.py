@@ -5,6 +5,8 @@ config.py
 - 클라우드 전환 시 USE_CLOUD_LLM = True 로 변경
 """
 
+from pathlib import Path
+
 
 class Config:
     """
@@ -51,7 +53,8 @@ class Config:
     LLM_TIMEOUT: int = 60
 
 
-    LOG_DIR: str = "logs"
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent
+    LOG_DIR: Path = BASE_DIR / "logs"
 
 
     PROCESS_BLACKLIST: list = [

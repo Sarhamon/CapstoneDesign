@@ -5,7 +5,6 @@ LLM 추상화 레이어
 - 추후: CloudLLMClient (Anthropic / OpenAI) 로 교체
 """
 
-import re
 import logging
 import requests
 from abc import ABC, abstractmethod

@@ -7,11 +7,9 @@ FocusGuard 메인 컨트롤러
 """
 
 import ctypes
-import os
 import logging
 import sys
 import threading
-import time
 import queue
 import numpy as np
 import psutil
@@ -54,8 +52,6 @@ def _set_process_dpi_awareness() -> None:
 
 _set_process_dpi_awareness()
 
-os.makedirs("logs", exist_ok=True)
-
 from config import Config
 from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
@@ -63,12 +59,14 @@ from overlay import BlockOverlay
 from event_logger import EventLogger
 from web_auth import WebAuthServer
 
+Config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("logs/focus_guard.log", encoding="utf-8"),
+        logging.FileHandler(Config.LOG_DIR / "focus_guard.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger("main")
@@ -170,7 +168,7 @@ class FocusGuard:
 
         if stage in ("TITLE_MATCH", "PROCESS_MATCH", "URL_MATCH"):
             logger.info(f"즉시 차단 ({stage}): {reason}")
-            self.event_logger.log_block(stage, reason, "RULE_BASED")
+            self.event_logger.log_block(stage, reason, "RULE_BASED", screenshot=screenshot)
             self._smart_kill_target(target_hwnd, target_pid)
 
             self._ui_queue.put(("show", reason))
@@ -213,7 +211,7 @@ class FocusGuard:
             )
 
             if llm_result == "BLOCK":
-                self.event_logger.log_block(stage, reason, llm_result)
+                self.event_logger.log_block(stage, reason, llm_result, screenshot=screenshot)
                 self._smart_kill_target(target_hwnd, target_pid)
                 self._ui_queue.put(("show", reason))
 
