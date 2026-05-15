@@ -420,8 +420,8 @@ function refreshEvents() {
 
 refreshStatus();
 refreshEvents();
-setInterval(refreshStatus, 3000);
-setInterval(refreshEvents, 10000);
+setInterval(refreshStatus, 5000);
+setInterval(refreshEvents, 15000);
 </script>
 </body>
 </html>
@@ -652,7 +652,7 @@ class WebAuthServer:
     def start(self) -> None:
         """HTTP 서버를 백그라운드 스레드에서 시작한다 (LAN 전체에 노출)."""
         handler_cls = self._make_handler_cls()
-        self._server = http.server.HTTPServer(("0.0.0.0", self.port), handler_cls)
+        self._server = http.server.ThreadingHTTPServer(("0.0.0.0", self.port), handler_cls)
         self._thread = threading.Thread(
             target=self._server.serve_forever,
             name="WebAuthServer",
@@ -699,6 +699,9 @@ class WebAuthServer:
                 if route in ("/", "/index.html"):
                     self._write(200, "text/html; charset=utf-8",
                                 _HTML_PAGE.encode("utf-8"))
+
+                elif route == "/favicon.ico":
+                    self._write(204, "image/x-icon", b"")
 
                 elif route == "/admin":
                     self._write(200, "text/html; charset=utf-8",
