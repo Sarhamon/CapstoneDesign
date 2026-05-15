@@ -180,15 +180,12 @@ class ScreenMonitor:
 
     def _is_process_whitelisted(self, proc_name: str) -> bool:
         """프로세스명이 PROCESS_WHITELIST에 있으면 True (대소문자 무시)."""
-        name_lower = proc_name.lower()
-        return any(w.lower() == name_lower for w in Config.PROCESS_WHITELIST)
+        return proc_name.lower() in Config.PROCESS_WHITELIST
 
     def _check_process_blacklist(self, proc_name: str):
         """프로세스명이 PROCESS_BLACKLIST에 있으면 사유 문자열 반환, 없으면 None."""
-        name_lower = proc_name.lower()
-        for blocked in Config.PROCESS_BLACKLIST:
-            if blocked.lower() == name_lower:
-                return f"프로세스 블랙리스트 감지: '{proc_name}'"
+        if proc_name.lower() in Config.PROCESS_BLACKLIST:
+            return f"프로세스 블랙리스트 감지: '{proc_name}'"
         return None
 
     def _check(self):
@@ -304,7 +301,7 @@ class ScreenMonitor:
             return None
         title_lower = title.lower()
         for keyword in Config.TITLE_BLACKLIST:
-            if keyword.lower() in title_lower:
+            if keyword in title_lower:
                 return f"창 타이틀 감지: '{keyword}' in '{title}'"
         return None
 
@@ -409,8 +406,7 @@ class ScreenMonitor:
         url_lower = url_text.lower()
         url_compact = url_lower.replace(" ", "")
         for keyword in Config.URL_BLACKLIST:
-            kw = keyword.lower()
-            if kw in url_lower or kw in url_compact:
+            if keyword in url_lower or keyword in url_compact:
                 return f"URL 키워드 감지: '{keyword}'"
         return None
 
@@ -430,7 +426,8 @@ class ScreenMonitor:
         """
         if not body_text:
             return None
-        matched = [kw for kw in Config.CONTENT_KEYWORDS if kw in body_text]
+        body_lower = body_text.lower()
+        matched = [kw for kw in Config.CONTENT_KEYWORDS if kw in body_lower]
         if len(matched) >= Config.KEYWORD_THRESHOLD:
             return f"콘텐츠 키워드 감지: {matched}"
         return None
@@ -451,4 +448,4 @@ class ScreenMonitor:
         if not text:
             return False
         text_lower = text.lower()
-        return any(wl.lower() in text_lower for wl in Config.URL_WHITELIST)
+        return any(wl in text_lower for wl in Config.URL_WHITELIST)

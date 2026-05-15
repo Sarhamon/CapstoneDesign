@@ -66,12 +66,12 @@ class Config:
     BASE_DIR: Path = _BASE_DIR
     LOG_DIR: Path = _BASE_DIR / "logs"  # 로그 파일 저장 경로 (프로젝트 루트/logs)
 
-    # data/blacklists.yaml 에서 로드
-    PROCESS_BLACKLIST: list = _blacklists.get("process", [])
-    TITLE_BLACKLIST: list = _blacklists.get("title", [])
-    URL_BLACKLIST: list = _blacklists.get("url", [])
-    CONTENT_KEYWORDS: list = _blacklists.get("content_keywords", [])
+    # 정확 일치 조회 → 소문자 변환 후 set (O(1) 조회)
+    PROCESS_BLACKLIST: set = {p.lower() for p in _blacklists.get("process", [])}
+    PROCESS_WHITELIST: set = {p.lower() for p in _whitelists.get("process", [])}
 
-    # data/whitelists.yaml 에서 로드
-    PROCESS_WHITELIST: list = _whitelists.get("process", [])
-    URL_WHITELIST: list = _whitelists.get("url", [])
+    # 부분 문자열 조회 → 소문자 변환 list (루프마다 .lower() 호출 제거)
+    TITLE_BLACKLIST: list = [t.lower() for t in _blacklists.get("title", [])]
+    URL_BLACKLIST: list = [u.lower() for u in _blacklists.get("url", [])]
+    CONTENT_KEYWORDS: list = [k.lower() for k in _blacklists.get("content_keywords", [])]
+    URL_WHITELIST: list = [u.lower() for u in _whitelists.get("url", [])]

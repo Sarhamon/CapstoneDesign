@@ -309,7 +309,7 @@ class FocusGuard:
         Returns:
             화이트리스트 항목이 포함되어 있으면 True, 아니면 False.
         """
-        return any(wl.lower() in text.lower() for wl in Config.URL_WHITELIST)
+        return any(wl in text.lower() for wl in Config.URL_WHITELIST)
 
 
 if __name__ == "__main__":
