@@ -38,6 +38,7 @@ class BlockEvent:
     type: ClassVar[str] = "BLOCK"
 
     def to_dict(self) -> dict:
+        """이벤트를 JSON 직렬화 가능한 dict로 변환한다."""
         return {
             "timestamp": self.timestamp,
             "type": self.type,
@@ -60,6 +61,7 @@ class UnlockRequestEvent:
     type: ClassVar[str] = "UNLOCK_REQUEST"
 
     def to_dict(self) -> dict:
+        """이벤트를 JSON 직렬화 가능한 dict로 변환한다."""
         return {
             "timestamp": self.timestamp,
             "type": self.type,
@@ -78,6 +80,7 @@ class AllowEvent:
     type: ClassVar[str] = "ALLOW"
 
     def to_dict(self) -> dict:
+        """이벤트를 JSON 직렬화 가능한 dict로 변환한다."""
         return {
             "timestamp": self.timestamp,
             "type": self.type,
@@ -155,6 +158,7 @@ class EventLogger:
 
     @staticmethod
     def _get_ip() -> str:
+        """실제 패킷 전송 없이 UDP 소켓 라우팅으로 LAN IP를 확인한다. 실패 시 'unknown'."""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -166,6 +170,7 @@ class EventLogger:
 
     @staticmethod
     def _get_mac() -> str:
+        """현재 PC의 MAC 주소를 'xx:xx:xx:xx:xx:xx' 형식으로 반환한다. 실패 시 'unknown'."""
         try:
             mac_bytes = uuid.getnode().to_bytes(6, byteorder="big")
             return ":".join(f"{b:02x}" for b in mac_bytes)

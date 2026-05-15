@@ -24,3 +24,6 @@ psutil
 
 # 웹 해제 인증 QR 코드 생성 (Pillow 의존)
 qrcode
+
+# 블랙리스트/화이트리스트 YAML 파일 로드
+pyyaml

@@ -1,0 +1,34 @@
+# whitelists.yaml
+# 차단을 건너뛸 프로세스·URL 목록
+# 항목 추가/제거 후 앱을 재시작하면 반영된다.
+
+# ── 프로세스 화이트리스트 ────────────────────────────────────────────────────────
+process:
+  # IDE / 코드 편집기
+  - Code.exe
+  - Cursor.exe
+  - idea64.exe
+  - eclipse.exe
+  - STS.exe
+  - pycharm64.exe
+
+  # 시스템 / 런타임 (FocusGuard 자신 포함)
+  - python.exe
+  - FocusGuard.exe
+  - cmd.exe
+  - powershell.exe
+  - WindowsTerminal.exe
+
+# ── URL 화이트리스트 ─────────────────────────────────────────────────────────────
+url:
+  # 학습 / 교육 플랫폼
+  - ebs.co.kr
+  - khanacademy.org
+  - coursera.org
+  - github.com
+  - stackoverflow.com
+  - docs.python.org
+
+  # 재학 중인 학교 도메인
+  - yeonsung.ac.kr
+  - eclass.yeonsung.ac.kr

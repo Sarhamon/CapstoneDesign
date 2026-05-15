@@ -90,11 +90,13 @@ class FocusGuard:
     """
 
     def __init__(self):
+        # 이벤트 저장소와 LLM 클라이언트 초기화
         self.event_logger = EventLogger()
         self.llm = get_llm_client()
+        # 서브 스레드 → 메인 스레드 UI 이벤트 전달 큐
         self._ui_queue = queue.Queue()
 
-
+        # 해제 인증 HTTP 서버 초기화; 인증 결과를 큐로 메인 스레드에 전달
         self.web_auth = WebAuthServer(
             port=Config.WEB_AUTH_PORT,
             max_failed_attempts=Config.UNLOCK_MAX_FAILED_ATTEMPTS,
@@ -102,6 +104,7 @@ class FocusGuard:
         self.web_auth.set_on_success(lambda: self._ui_queue.put(("web-unlock",)))
         self.web_auth.set_on_lockout(lambda: self._ui_queue.put(("auth-locked",)))
 
+        # 오버레이 UI와 화면 모니터 초기화
         self.overlay = BlockOverlay(
             on_unlock_callback=self._on_unlock,
             ui_queue=self._ui_queue,
@@ -109,7 +112,7 @@ class FocusGuard:
         )
         self.monitor = ScreenMonitor(on_detect_callback=self._on_detect)
 
-
+        # LLM 호출을 직렬화하여 동시에 여러 요청이 실행되지 않도록 하는 락
         self._llm_lock = threading.Lock()
 
 
@@ -128,10 +131,11 @@ class FocusGuard:
         logger.info("=" * 50)
 
 
+        # 로컬 LLM이면 첫 응답 지연을 줄이기 위해 모델을 미리 메모리에 적재
         if not Config.USE_CLOUD_LLM and isinstance(self.llm, LocalLLMClient):
             self.llm.warmup()
 
-
+        # HTTP 서버·모니터를 백그라운드에서 시작하고 메인 스레드에서 Tkinter 루프 실행
         self.web_auth.start()
 
         self.monitor.start()
@@ -166,6 +170,7 @@ class FocusGuard:
             return
 
 
+        # 규칙 기반 탐지(TITLE/PROCESS/URL)는 LLM 없이 즉시 차단
         if stage in ("TITLE_MATCH", "PROCESS_MATCH", "URL_MATCH"):
             logger.info(f"즉시 차단 ({stage}): {reason}")
             self.event_logger.log_block(stage, reason, "RULE_BASED", screenshot=screenshot)
@@ -174,7 +179,7 @@ class FocusGuard:
             self._ui_queue.put(("show", reason))
             return
 
-
+        # 키워드 탐지는 별도 스레드에서 LLM 검증 후 최종 차단 여부 결정
         threading.Thread(
             target=self._llm_verify,
             args=(stage, reason, screenshot, target_hwnd, target_pid),
@@ -187,12 +192,7 @@ class FocusGuard:
         LLM을 호출하여 콘텐츠 키워드 탐지 결과를 검증한다.
 
         _llm_lock으로 직렬화하여 동시에 여러 LLM 요청이 실행되지 않도록 한다.
-        대기 중인 요청들은 자기 자신의 스냅샷(target_hwnd/screenshot)을 보존한 채
-        순차적으로 처리되므로, 락 대기 중 다른 탭으로 이동해도 키워드가 매칭된
-        시점의 그 창을 정확히 종료한다.
-
-        잠금 획득 후 오버레이가 이미 활성화되어 있으면(이전 요청이 BLOCK 처리됨)
-        중복 처리를 막기 위해 즉시 반환한다.
+        잠금 획득 후 오버레이가 이미 활성화되어 있으면 처리를 취소한다.
 
         LLM 결과:
             BLOCK  → 프로세스 종료 + 오버레이 표시
@@ -215,18 +215,19 @@ class FocusGuard:
                 ocr_text=reason,
             )
 
+            # LLM 판정에 따라 차단 또는 허용 처리
             if llm_result == "BLOCK":
                 self.event_logger.log_block(stage, reason, llm_result, screenshot=screenshot)
                 self._smart_kill_target(target_hwnd, target_pid)
                 self._ui_queue.put(("show", reason))
 
             elif llm_result == "UNSURE":
-
+                # 판단 불가 시 오탐보다 미탐을 선택하여 통과 처리
                 logger.warning(f"LLM UNSURE → 통과 처리: {reason}")
                 self.event_logger.log_allow(reason)
 
             else:
-
+                # ALLOW: 수업 관련 콘텐츠로 판단
                 self.event_logger.log_allow(reason)
 
 
@@ -277,13 +278,13 @@ class FocusGuard:
 
             browser_list = ["chrome.exe", "msedge.exe", "whale.exe", "firefox.exe"]
 
+            # 브라우저는 WM_CLOSE로 해당 창만 닫아 다른 탭에 영향을 주지 않음
             if any(b in proc_name for b in browser_list):
-
                 logger.info(f"[브라우저 창 닫기] {proc_name} (HWND: {hwnd})")
                 win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
                 self.event_logger.log_block("WINDOW_CLOSE", f"{proc_name} (HWND {hwnd})")
             else:
-
+                # 브라우저가 아닌 프로세스는 terminate()로 종료 신호 전송
                 proc.terminate()
                 logger.info(f"[프로세스 종료] {proc_name} (PID {pid})")
                 self.event_logger.log_block("PROCESS_KILL", f"{proc_name} (PID {pid})")

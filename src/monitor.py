@@ -235,6 +235,8 @@ class ScreenMonitor:
             return
 
 
+        target_hwnd, target_pid = self._get_current_focus_info()
+
         screenshot = self._capture_screen(target_hwnd)
 
         url_text, body_text = self._split_zones(screenshot)

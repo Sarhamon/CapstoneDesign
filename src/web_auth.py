@@ -205,15 +205,16 @@ class WebAuthServer:
             self._server = None
 
     def _make_handler_cls(self):
+        """HTTP 핸들러 클래스를 생성해 반환한다. 클로저로 outer(WebAuthServer)를 캡처한다."""
         outer = self
 
         class _Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, format, *args):
-
-
+                """기본 stderr 출력을 Python logging(DEBUG)으로 교체한다."""
                 logger.debug("HTTP %s - %s", self.address_string(), format % args)
 
             def _write(self, status: int, content_type: str, body: bytes) -> None:
+                """공통 HTTP 응답 헤더와 바디를 작성한다."""
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
@@ -222,6 +223,7 @@ class WebAuthServer:
                 self.wfile.write(body)
 
             def do_GET(self):
+                """GET 요청 처리: 루트 경로에 해제 UI 페이지를 반환한다."""
                 path = self.path.split("?", 1)[0]
                 if path in ("/", "/index.html"):
                     self._write(200, "text/html; charset=utf-8",
@@ -230,6 +232,7 @@ class WebAuthServer:
                     self.send_error(404)
 
             def do_POST(self):
+                """POST /unlock 요청 처리: 제출된 코드를 검증하고 결과를 JSON으로 반환한다."""
                 if self.path != "/unlock":
                     self.send_error(404)
                     return
