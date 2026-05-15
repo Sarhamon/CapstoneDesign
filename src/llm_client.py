@@ -8,7 +8,7 @@ LLM 추상화 레이어
 import logging
 import requests
 from abc import ABC, abstractmethod
-from config import Config
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class LocalLLMClient(LLMClient):
     """
     Ollama 로컬 서버를 통해 LLM을 호출하는 클라이언트.
 
-    Ollama가 localhost에서 실행 중이어야 하며, Config.OLLAMA_MODEL에 지정된
+    Ollama가 localhost에서 실행 중이어야 하며, config.OLLAMA_MODEL에 지정된
     모델이 사전에 pull되어 있어야 한다.
     temperature=0.0으로 설정하여 매번 동일한 판단을 유도한다.
     """
@@ -103,7 +103,7 @@ URL: {url_text or '없음'}
 화면 텍스트: {ocr_text[:500] if ocr_text else '없음'}"""
 
         payload = {
-            "model": Config.OLLAMA_MODEL,
+            "model": config.OLLAMA_MODEL,
             "messages": [
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
@@ -117,9 +117,9 @@ URL: {url_text or '없음'}
 
         try:
             resp = requests.post(
-                f"{Config.OLLAMA_HOST}/api/chat",
+                f"{config.OLLAMA_HOST}/api/chat",
                 json=payload,
-                timeout=Config.LLM_TIMEOUT,
+                timeout=config.LLM_TIMEOUT,
             )
             resp.raise_for_status()
 
@@ -161,7 +161,7 @@ URL: {url_text or '없음'}
         첫 번째 실제 분석 요청의 응답 지연을 줄이기 위해 더미 입력으로
         모델을 한 번 호출한다. main.py의 run()에서 USE_CLOUD_LLM=False일 때만 실행된다.
         """
-        logger.info(f"LLM 워밍업 중... (모델: {Config.OLLAMA_MODEL})")
+        logger.info(f"LLM 워밍업 중... (모델: {config.OLLAMA_MODEL})")
         try:
             self.analyze("warmup", "", "")
             logger.info("LLM 워밍업 완료")
@@ -173,7 +173,7 @@ class CloudLLMClient(LLMClient):
     """
     클라우드 LLM API를 사용하는 클라이언트 (미구현).
 
-    Config.USE_CLOUD_LLM = True로 설정 시 get_llm_client()가 이 클래스를 반환한다.
+    config.USE_CLOUD_LLM = True로 설정 시 get_llm_client()가 이 클래스를 반환한다.
     LocalLLMClient와 동일한 analyze() 인터페이스를 구현해야 한다.
 
     TODO: Anthropic Claude API 또는 OpenAI API 연동 예정
@@ -185,7 +185,7 @@ class CloudLLMClient(LLMClient):
 
 def get_llm_client() -> LLMClient:
     """
-    Config.USE_CLOUD_LLM 값에 따라 적절한 LLMClient 구현체를 반환한다.
+    config.USE_CLOUD_LLM 값에 따라 적절한 LLMClient 구현체를 반환한다.
 
     로컬/클라우드 전환 시 이 함수 하나만 수정하면 되도록 설계되었다.
 
@@ -193,6 +193,6 @@ def get_llm_client() -> LLMClient:
         LocalLLMClient (USE_CLOUD_LLM=False) 또는
         CloudLLMClient (USE_CLOUD_LLM=True)
     """
-    if Config.USE_CLOUD_LLM:
+    if config.USE_CLOUD_LLM:
         return CloudLLMClient()
     return LocalLLMClient()

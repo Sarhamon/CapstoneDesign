@@ -1,12 +1,15 @@
 """
 config.py
-전체 설정값 중앙 관리
-- 런타임 설정(포트, 타임아웃 등)은 이 파일에서 관리
-- 블랙리스트/화이트리스트는 data/blacklists.yaml, data/whitelists.yaml 에서 관리
+런타임 설정 관리
+- 환경 변수 또는 .env 파일로 재정의 가능 (우선순위: 환경 변수 > .env > 코드 기본값)
+- 블랙리스트/화이트리스트는 data/*.yaml 에서 로드 (env 비관리)
 """
 
 import yaml
 from pathlib import Path
+from typing import Annotated, ClassVar
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BASE_DIR = Path(__file__).resolve().parent.parent
 _DATA_DIR = _BASE_DIR / "data"
@@ -24,54 +27,62 @@ _blacklists = _load_yaml("blacklists.yaml")
 _whitelists = _load_yaml("whitelists.yaml")
 
 
-class Config:
+class Config(BaseSettings):
     """
-    FocusGuard 애플리케이션 전역 설정 클래스.
+    FocusGuard 애플리케이션 전역 설정.
 
-    모든 설정값은 클래스 변수로 선언되어 인스턴스 생성 없이 Config.변수명으로 접근한다.
-    블랙리스트/화이트리스트 목록은 data/*.yaml 에서 로드되므로
-    앱을 재시작하지 않고 yaml 파일만 수정해도 다음 실행 시 반영된다.
+    우선순위: 환경 변수 > .env 파일 > 코드 기본값
+    실행 환경에 맞게 .env 파일을 생성하거나 환경 변수를 설정한다.
+    (.env.example 참고)
     """
 
-    WEB_AUTH_PORT: int = 8080  # 해제 인증 HTTP 서버 바인드 포트
+    model_config = SettingsConfigDict(
+        env_file=_BASE_DIR / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-    UNLOCK_CODE_TTL: int = 120  # 해제 코드 유효 시간 (초); 만료 시 자동 무효화
+    # ── HTTP 서버 ──────────────────────────────────────────────────────────────
+    WEB_AUTH_PORT: Annotated[int, Field(ge=1, le=65535)] = 8080         # 해제 인증 서버 포트
 
-    UNLOCK_CODE_LENGTH: int = 6  # 해제 코드 자릿수 (숫자)
+    # ── 해제 코드 ──────────────────────────────────────────────────────────────
+    UNLOCK_CODE_TTL: Annotated[int, Field(gt=0)] = 120                  # 코드 유효 시간 (초)
+    UNLOCK_CODE_LENGTH: Annotated[int, Field(ge=4, le=12)] = 6          # 코드 자릿수
+    UNLOCK_MAX_FAILED_ATTEMPTS: Annotated[int, Field(ge=1)] = 5         # 연속 실패 허용 횟수
 
-    UNLOCK_MAX_FAILED_ATTEMPTS: int = 5  # 연속 실패 허용 횟수; 초과 시 코드 무효화
+    # ── 기능 플래그 ────────────────────────────────────────────────────────────
+    KEYBOARD_BLOCK_ENABLED: bool = False                                 # 오버레이 중 키보드 전체 차단
+    USE_CLOUD_LLM: bool = False                                          # True 시 CloudLLMClient 사용
 
-    KEYBOARD_BLOCK_ENABLED: bool = False  # True 시 오버레이 활성화 중 키보드 전체 차단
+    # ── 폴링 ───────────────────────────────────────────────────────────────────
+    FAST_POLL_INTERVAL: Annotated[float, Field(gt=0)] = 1.0             # 포커스 창 변경 감지 주기 (초)
+    POLL_INTERVAL: Annotated[float, Field(gt=0)] = 12.0                 # OCR 포함 전체 검사 주기 (초)
 
-    USE_CLOUD_LLM: bool = False  # True 로 바꾸면 LocalLLMClient 대신 CloudLLMClient 사용
+    # ── OCR ────────────────────────────────────────────────────────────────────
+    OCR_CONFIDENCE_THRESHOLD: Annotated[float, Field(ge=0.0, le=1.0)] = 0.6    # 본문 OCR 신뢰도 임계값
+    URL_OCR_CONFIDENCE_THRESHOLD: Annotated[float, Field(ge=0.0, le=1.0)] = 0.35  # URL 영역 OCR 신뢰도
+    URL_ZONE_RATIO: Annotated[float, Field(ge=0.0, le=1.0)] = 0.12              # URL 영역 높이 비율 (0~12%)
+    KEYWORD_THRESHOLD: Annotated[int, Field(ge=1)] = 2                          # LLM 검증 트리거 최소 키워드 수
 
-    FAST_POLL_INTERVAL: float = 1.0  # 포커스 창 변경 감지 폴링 주기 (초)
+    # ── Ollama ─────────────────────────────────────────────────────────────────
+    OLLAMA_HOST: str = "http://localhost:11434"                          # Ollama API 서버 주소
+    OLLAMA_MODEL: str = "gemma3:4b"                                      # 사용할 Ollama 모델명
+    LLM_TIMEOUT: Annotated[int, Field(gt=0)] = 60                       # Ollama 응답 타임아웃 (초)
 
-    POLL_INTERVAL: float = 12.0  # OCR 포함 전체 탐지 검사 주기 (초)
+    # ── 경로 (env 비관리 — 소스 파일 위치 기반) ───────────────────────────────
+    BASE_DIR: ClassVar[Path] = _BASE_DIR
+    LOG_DIR: ClassVar[Path] = _BASE_DIR / "logs"
 
-    OCR_CONFIDENCE_THRESHOLD: float = 0.6  # 본문 OCR 신뢰도 임계값 (이 값 미만은 무시)
-
-    URL_OCR_CONFIDENCE_THRESHOLD: float = 0.35  # URL 영역 OCR 신뢰도; 더 낮게 설정해 작은 텍스트도 포착
-
-    URL_ZONE_RATIO: float = 0.12  # URL 영역 높이 비율 (화면 상단 0 ~ 12%)
-
-    KEYWORD_THRESHOLD: int = 2  # LLM 검증 트리거 최소 키워드 감지 수
-
-    OLLAMA_HOST: str = "http://localhost:11434"  # Ollama API 서버 주소
-
-    OLLAMA_MODEL: str = "gemma3:4b"  # 사용할 Ollama 모델명
-
-    LLM_TIMEOUT: int = 60  # Ollama API 응답 타임아웃 (초)
-
-    BASE_DIR: Path = _BASE_DIR
-    LOG_DIR: Path = _BASE_DIR / "logs"  # 로그 파일 저장 경로 (프로젝트 루트/logs)
-
+    # ── 블랙리스트 / 화이트리스트 (YAML 로드, env 비관리) ──────────────────────
     # 정확 일치 조회 → 소문자 변환 후 set (O(1) 조회)
-    PROCESS_BLACKLIST: set = {p.lower() for p in _blacklists.get("process", [])}
-    PROCESS_WHITELIST: set = {p.lower() for p in _whitelists.get("process", [])}
-
+    PROCESS_BLACKLIST: ClassVar[set]  = {p.lower() for p in _blacklists.get("process", [])}
+    PROCESS_WHITELIST: ClassVar[set]  = {p.lower() for p in _whitelists.get("process", [])}
     # 부분 문자열 조회 → 소문자 변환 list (루프마다 .lower() 호출 제거)
-    TITLE_BLACKLIST: list = [t.lower() for t in _blacklists.get("title", [])]
-    URL_BLACKLIST: list = [u.lower() for u in _blacklists.get("url", [])]
-    CONTENT_KEYWORDS: list = [k.lower() for k in _blacklists.get("content_keywords", [])]
-    URL_WHITELIST: list = [u.lower() for u in _whitelists.get("url", [])]
+    TITLE_BLACKLIST:   ClassVar[list] = [t.lower() for t in _blacklists.get("title", [])]
+    URL_BLACKLIST:     ClassVar[list] = [u.lower() for u in _blacklists.get("url", [])]
+    CONTENT_KEYWORDS:  ClassVar[list] = [k.lower() for k in _blacklists.get("content_keywords", [])]
+    URL_WHITELIST:     ClassVar[list] = [u.lower() for u in _whitelists.get("url", [])]
+
+
+# 앱 전역에서 사용하는 단일 설정 인스턴스
+config = Config()

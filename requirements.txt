@@ -27,3 +27,6 @@ qrcode
 
 # 블랙리스트/화이트리스트 YAML 파일 로드
 pyyaml
+
+# 환경 변수 기반 설정 관리 및 유효성 검사
+pydantic-settings

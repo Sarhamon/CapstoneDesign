@@ -19,7 +19,7 @@ from qrcode.constants import ERROR_CORRECT_M
 from qrcode.image.pil import PilImage
 from PIL import Image, ImageTk
 
-from config import Config
+from config import config
 from web_auth import WebAuthServer, get_lan_ip
 
 logger = logging.getLogger(__name__)
@@ -207,7 +207,7 @@ class BlockOverlay:
         self._active = True
         self._reason = reason
         self._build_ui()
-        if Config.KEYBOARD_BLOCK_ENABLED:
+        if config.KEYBOARD_BLOCK_ENABLED:
             self._install_kb_hook()
 
     def _hide(self):
@@ -219,7 +219,7 @@ class BlockOverlay:
         활성 해제 코드도 함께 무효화하여 오버레이가 닫힌 뒤 재인증을 막는다.
         """
         self._active = False
-        if Config.KEYBOARD_BLOCK_ENABLED:
+        if config.KEYBOARD_BLOCK_ENABLED:
             self._uninstall_kb_hook()
         self._unlock_expires_at = 0.0
         if self._web_auth:
@@ -404,7 +404,7 @@ class BlockOverlay:
         """
         "해제 요청" 버튼 클릭 시 호출된다.
 
-        Config.UNLOCK_CODE_LENGTH 자릿수의 랜덤 숫자 코드를 생성하고
+        config.UNLOCK_CODE_LENGTH 자릿수의 랜덤 숫자 코드를 생성하고
         WebAuthServer에 등록한 뒤, QR(LAN URL) + 코드 + 카운트다운 패널로 전환한다.
         """
         if self._web_auth is None:
@@ -412,15 +412,15 @@ class BlockOverlay:
             return
 
 
-        lower = 10 ** (Config.UNLOCK_CODE_LENGTH - 1)
-        span  = 10 ** Config.UNLOCK_CODE_LENGTH - lower
+        lower = 10 ** (config.UNLOCK_CODE_LENGTH - 1)
+        span  = 10 ** config.UNLOCK_CODE_LENGTH - lower
         code  = str(secrets.randbelow(span) + lower)
 
-        ttl = Config.UNLOCK_CODE_TTL
+        ttl = config.UNLOCK_CODE_TTL
         self._web_auth.set_code(code, ttl)
         self._unlock_expires_at = time.time() + ttl
 
-        url = f"http://{get_lan_ip()}:{Config.WEB_AUTH_PORT}/"
+        url = f"http://{get_lan_ip()}:{config.WEB_AUTH_PORT}/"
         logger.info(f"[해제 요청] 코드 발급 (TTL {ttl}s) | URL: {url}")
         self._show_qr_panel(url, code)
 

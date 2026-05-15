@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
-from config import Config
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ class EventLogger:
 
     def __init__(self, sink: EventSink | None = None):
         if sink is None:
-            sink = LocalJSONLSink(Config.LOG_DIR / "events.jsonl")
+            sink = LocalJSONLSink(config.LOG_DIR / "events.jsonl")
         self.sink = sink
         self._device_ip = self._get_ip()
         self._device_mac = self._get_mac()

@@ -15,7 +15,7 @@ import cv2
 import pygetwindow as gw
 import easyocr
 import psutil
-from config import Config
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +34,15 @@ class ScreenMonitor:
     백그라운드 스레드에서 주기적으로 화면을 감시하는 모니터.
 
     탐지 파이프라인 (3단계):
-        1단계 — 창 타이틀 블랙리스트: Config.TITLE_BLACKLIST와 대소문자 무관 부분 일치.
+        1단계 — 창 타이틀 블랙리스트: config.TITLE_BLACKLIST와 대소문자 무관 부분 일치.
                  일치 시 즉시 callback("TITLE_MATCH", ...) 호출.
-        2단계 — URL 키워드 블랙리스트: 화면 상단 영역 OCR 후 Config.URL_BLACKLIST와 비교.
+        2단계 — URL 키워드 블랙리스트: 화면 상단 영역 OCR 후 config.URL_BLACKLIST와 비교.
                  일치 시 즉시 callback("URL_MATCH", ...) 호출.
-        3단계 — 콘텐츠 키워드: 화면 본문 영역 OCR 후 Config.CONTENT_KEYWORDS와 비교.
+        3단계 — 콘텐츠 키워드: 화면 본문 영역 OCR 후 config.CONTENT_KEYWORDS와 비교.
                  KEYWORD_THRESHOLD 개 이상 감지 시 callback("KEYWORD_MATCH", ...) 호출.
                  → main.py에서 LLM 검증을 거쳐 최종 차단 여부를 결정한다.
 
-    화이트리스트(Config.URL_WHITELIST)에 포함된 텍스트가 감지되면
+    화이트리스트(config.URL_WHITELIST)에 포함된 텍스트가 감지되면
     블랙리스트 검사를 건너뛰고 허용한다.
     """
 
@@ -86,9 +86,9 @@ class ScreenMonitor:
         """
         2단계 폴링 루프.
 
-        Config.FAST_POLL_INTERVAL 간격으로 포커스 창 정보(HWND/프로세스/타이틀)만
+        config.FAST_POLL_INTERVAL 간격으로 포커스 창 정보(HWND/프로세스/타이틀)만
         값싸게 조회하여, 창이 바뀐 순간 즉시 전체 검사(_check)를 트리거한다.
-        창이 그대로면 Config.POLL_INTERVAL 마다만 OCR을 포함한 전체 검사를 돌려
+        창이 그대로면 config.POLL_INTERVAL 마다만 OCR을 포함한 전체 검사를 돌려
         같은 창 안에서의 콘텐츠 변화도 주기적으로 잡는다.
 
         설계 의도:
@@ -113,7 +113,7 @@ class ScreenMonitor:
 
                 now = time.monotonic()
                 focus_changed = focus_key != last_focus_key
-                stale = (now - last_full_scan_at) >= Config.POLL_INTERVAL
+                stale = (now - last_full_scan_at) >= config.POLL_INTERVAL
 
                 if focus_changed or stale:
                     if focus_changed and last_focus_key is not None:
@@ -126,7 +126,7 @@ class ScreenMonitor:
                     last_focus_key = focus_key
             except Exception as e:
                 logger.error(f"모니터링 루프 오류: {e}")
-            time.sleep(Config.FAST_POLL_INTERVAL)
+            time.sleep(config.FAST_POLL_INTERVAL)
 
     def _get_current_focus_info(self) -> tuple[int | None, int | None]:
         """
@@ -185,11 +185,11 @@ class ScreenMonitor:
 
     def _is_process_whitelisted(self, proc_name_n: str) -> bool:
         """정규화된 프로세스명이 PROCESS_WHITELIST에 있으면 True."""
-        return proc_name_n in Config.PROCESS_WHITELIST
+        return proc_name_n in config.PROCESS_WHITELIST
 
     def _check_process_blacklist(self, proc_name_n: str):
         """정규화된 프로세스명이 PROCESS_BLACKLIST에 있으면 사유 문자열 반환, 없으면 None."""
-        if proc_name_n in Config.PROCESS_BLACKLIST:
+        if proc_name_n in config.PROCESS_BLACKLIST:
             return f"프로세스 블랙리스트 감지: '{proc_name_n}'"
         return None
 
@@ -295,7 +295,7 @@ class ScreenMonitor:
         Returns:
             탐지된 경우 사유 문자열, 탐지되지 않은 경우 None.
         """
-        for keyword in Config.TITLE_BLACKLIST:
+        for keyword in config.TITLE_BLACKLIST:
             if keyword in title_n:
                 return f"창 타이틀 감지: '{keyword}' in '{title_n}'"
         return None
@@ -348,11 +348,11 @@ class ScreenMonitor:
             (url_text, body_text) — 각 영역의 OCR 결과 문자열 튜플.
         """
         h = img.shape[0]
-        split = int(h * Config.URL_ZONE_RATIO)
+        split = int(h * config.URL_ZONE_RATIO)
         url_zone  = img[0     : split, :]
         body_zone = img[split : int(h * 0.85), :]
         return (
-            self._ocr_to_text(url_zone, threshold=Config.URL_OCR_CONFIDENCE_THRESHOLD),
+            self._ocr_to_text(url_zone, threshold=config.URL_OCR_CONFIDENCE_THRESHOLD),
             self._ocr_to_text(body_zone),
         )
 
@@ -362,7 +362,7 @@ class ScreenMonitor:
 
         Args:
             img: OCR을 수행할 BGR 이미지 영역.
-            threshold: 신뢰도 임계값. None이면 Config.OCR_CONFIDENCE_THRESHOLD 사용.
+            threshold: 신뢰도 임계값. None이면 config.OCR_CONFIDENCE_THRESHOLD 사용.
 
         Returns:
             신뢰도 임계값 이상의 텍스트를 공백으로 연결한 문자열.
@@ -371,7 +371,7 @@ class ScreenMonitor:
         try:
             if img.size == 0:
                 return ""
-            min_conf = threshold if threshold is not None else Config.OCR_CONFIDENCE_THRESHOLD
+            min_conf = threshold if threshold is not None else config.OCR_CONFIDENCE_THRESHOLD
             results = self.ocr.readtext(img, detail=1)
             lines = [
                 text
@@ -399,7 +399,7 @@ class ScreenMonitor:
         if not url_n:
             return None
         url_compact = url_n.replace(" ", "")
-        for keyword in Config.URL_BLACKLIST:
+        for keyword in config.URL_BLACKLIST:
             if keyword in url_n or keyword in url_compact:
                 return f"URL 키워드 감지: '{keyword}'"
         return None
@@ -420,8 +420,8 @@ class ScreenMonitor:
         """
         if not body_n:
             return None
-        matched = [kw for kw in Config.CONTENT_KEYWORDS if kw in body_n]
-        if len(matched) >= Config.KEYWORD_THRESHOLD:
+        matched = [kw for kw in config.CONTENT_KEYWORDS if kw in body_n]
+        if len(matched) >= config.KEYWORD_THRESHOLD:
             return f"콘텐츠 키워드 감지: {matched}"
         return None
 
@@ -439,4 +439,4 @@ class ScreenMonitor:
         """
         if not text_n:
             return False
-        return any(wl in text_n for wl in Config.URL_WHITELIST)
+        return any(wl in text_n for wl in config.URL_WHITELIST)

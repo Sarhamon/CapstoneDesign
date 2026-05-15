@@ -52,21 +52,21 @@ def _set_process_dpi_awareness() -> None:
 
 _set_process_dpi_awareness()
 
-from config import Config
+from config import config
 from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
 from overlay import BlockOverlay
 from event_logger import EventLogger
 from web_auth import WebAuthServer
 
-Config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+config.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(Config.LOG_DIR / "focus_guard.log", encoding="utf-8"),
+        logging.FileHandler(config.LOG_DIR / "focus_guard.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger("main")
@@ -98,8 +98,8 @@ class FocusGuard:
 
         # 해제 인증 HTTP 서버 초기화; 인증 결과를 큐로 메인 스레드에 전달
         self.web_auth = WebAuthServer(
-            port=Config.WEB_AUTH_PORT,
-            max_failed_attempts=Config.UNLOCK_MAX_FAILED_ATTEMPTS,
+            port=config.WEB_AUTH_PORT,
+            max_failed_attempts=config.UNLOCK_MAX_FAILED_ATTEMPTS,
         )
         self.web_auth.set_on_success(lambda: self._ui_queue.put(("web-unlock",)))
         self.web_auth.set_on_lockout(lambda: self._ui_queue.put(("auth-locked",)))
@@ -126,13 +126,13 @@ class FocusGuard:
         """
         logger.info("=" * 50)
         logger.info("FocusGuard 시작")
-        logger.info(f"모드: {'클라우드' if Config.USE_CLOUD_LLM else '로컬'} LLM")
-        logger.info(f"모델: {Config.OLLAMA_MODEL}")
+        logger.info(f"모드: {'클라우드' if config.USE_CLOUD_LLM else '로컬'} LLM")
+        logger.info(f"모델: {config.OLLAMA_MODEL}")
         logger.info("=" * 50)
 
 
         # 로컬 LLM이면 첫 응답 지연을 줄이기 위해 모델을 미리 메모리에 적재
-        if not Config.USE_CLOUD_LLM and isinstance(self.llm, LocalLLMClient):
+        if not config.USE_CLOUD_LLM and isinstance(self.llm, LocalLLMClient):
             self.llm.warmup()
 
         # HTTP 서버·모니터를 백그라운드에서 시작하고 메인 스레드에서 Tkinter 루프 실행
@@ -309,7 +309,7 @@ class FocusGuard:
         Returns:
             화이트리스트 항목이 포함되어 있으면 True, 아니면 False.
         """
-        return any(wl in text.lower() for wl in Config.URL_WHITELIST)
+        return any(wl in text.lower() for wl in config.URL_WHITELIST)
 
 
 if __name__ == "__main__":
