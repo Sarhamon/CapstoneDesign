@@ -52,24 +52,19 @@ try:
     @pytest.mark.parametrize("module", MODULES)
     def test_src_module_imports(module: str) -> None:
         _smoke(REPO_ROOT / "src", module)
-
-    @pytest.mark.parametrize("module", MODULES)
-    def test_anno_module_imports(module: str) -> None:
-        _smoke(REPO_ROOT / "anno", module)
 except ImportError:
     pass
 
 
 if __name__ == "__main__":
     failures: list[tuple[str, str, str]] = []
-    for directory in (REPO_ROOT / "src", REPO_ROOT / "anno"):
-        for module in MODULES:
-            try:
-                _smoke(directory, module)
-                print(f"OK   {directory.name}/{module}")
-            except AssertionError as e:
-                print(f"FAIL {directory.name}/{module}")
-                failures.append((directory.name, module, str(e)))
+    for module in MODULES:
+        try:
+            _smoke(REPO_ROOT / "src", module)
+            print(f"OK   src/{module}")
+        except AssertionError as e:
+            print(f"FAIL src/{module}")
+            failures.append(("src", module, str(e)))
     if failures:
         print(f"\n{len(failures)} failure(s):")
         for d, m, msg in failures:

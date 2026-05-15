@@ -11,6 +11,7 @@ import logging
 import sys
 import threading
 import queue
+from datetime import datetime
 import numpy as np
 import psutil
 
@@ -95,6 +96,9 @@ class FocusGuard:
         self.llm = get_llm_client()
         # 서브 스레드 → 메인 스레드 UI 이벤트 전달 큐
         self._ui_queue = queue.Queue()
+        # 관리자 대시보드에 노출할 마지막 탐지 정보
+        self._last_detection_reason: str = ""
+        self._last_detection_time: str = ""
 
         # 해제 인증 HTTP 서버 초기화; 인증 결과를 큐로 메인 스레드에 전달
         self.web_auth = WebAuthServer(
@@ -114,6 +118,14 @@ class FocusGuard:
 
         # LLM 호출을 직렬화하여 동시에 여러 요청이 실행되지 않도록 하는 락
         self._llm_lock = threading.Lock()
+
+        # 관리자 대시보드에 실시간 상태를 노출하는 콜백 등록
+        self.web_auth.set_status_provider(lambda: {
+            "monitoring": self.monitor.running,
+            "overlay_active": self.overlay.is_active,
+            "last_detection": self._last_detection_reason,
+            "last_detection_time": self._last_detection_time,
+        })
 
 
     def run(self):
@@ -165,6 +177,8 @@ class FocusGuard:
             logger.info(f"화이트리스트 통과: {reason}")
             return
 
+        self._last_detection_reason = f"[{stage}] {reason}"
+        self._last_detection_time = datetime.now().isoformat(timespec="seconds")
 
         if self.overlay.is_active:
             return

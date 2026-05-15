@@ -86,3 +86,16 @@ class Config(BaseSettings):
 
 # 앱 전역에서 사용하는 단일 설정 인스턴스
 config = Config()
+
+
+def reload_lists() -> None:
+    """YAML 파일을 다시 읽어 Config ClassVar를 갱신한다 (관리자 페이지에서 목록 변경 시 호출)."""
+    global _blacklists, _whitelists
+    _blacklists = _load_yaml("blacklists.yaml")
+    _whitelists = _load_yaml("whitelists.yaml")
+    Config.PROCESS_BLACKLIST = {p.lower() for p in _blacklists.get("process", [])}
+    Config.PROCESS_WHITELIST = {p.lower() for p in _whitelists.get("process", [])}
+    Config.TITLE_BLACKLIST   = [t.lower() for t in _blacklists.get("title", [])]
+    Config.URL_BLACKLIST     = [u.lower() for u in _blacklists.get("url", [])]
+    Config.CONTENT_KEYWORDS  = [k.lower() for k in _blacklists.get("content_keywords", [])]
+    Config.URL_WHITELIST     = [u.lower() for u in _whitelists.get("url", [])]
