@@ -77,6 +77,11 @@ class ScreenMonitor:
         self.running = False
         logger.info("모니터링 중지")
 
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """비교용 문자열 정규화: 영문자를 소문자로 변환한다."""
+        return text.lower()
+
     def _loop(self):
         """
         2단계 폴링 루프.
@@ -178,14 +183,14 @@ class ScreenMonitor:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return ""
 
-    def _is_process_whitelisted(self, proc_name: str) -> bool:
-        """프로세스명이 PROCESS_WHITELIST에 있으면 True (대소문자 무시)."""
-        return proc_name.lower() in Config.PROCESS_WHITELIST
+    def _is_process_whitelisted(self, proc_name_n: str) -> bool:
+        """정규화된 프로세스명이 PROCESS_WHITELIST에 있으면 True."""
+        return proc_name_n in Config.PROCESS_WHITELIST
 
-    def _check_process_blacklist(self, proc_name: str):
-        """프로세스명이 PROCESS_BLACKLIST에 있으면 사유 문자열 반환, 없으면 None."""
-        if proc_name.lower() in Config.PROCESS_BLACKLIST:
-            return f"프로세스 블랙리스트 감지: '{proc_name}'"
+    def _check_process_blacklist(self, proc_name_n: str):
+        """정규화된 프로세스명이 PROCESS_BLACKLIST에 있으면 사유 문자열 반환, 없으면 None."""
+        if proc_name_n in Config.PROCESS_BLACKLIST:
+            return f"프로세스 블랙리스트 감지: '{proc_name_n}'"
         return None
 
     def _check(self):
@@ -199,60 +204,55 @@ class ScreenMonitor:
 
         target_hwnd, target_pid = self._get_current_focus_info()
 
-
+        # 프로세스명 정규화 — 이후 비교에 proc_name_n 사용, 로그에는 원본 proc_name 사용
         proc_name = self._get_process_name(target_pid)
-        if self._is_process_whitelisted(proc_name):
+        proc_name_n = self._normalize(proc_name)
+        if self._is_process_whitelisted(proc_name_n):
             logger.debug(f"프로세스 화이트리스트 통과: {proc_name}")
             return
 
-
-        if proc_name:
-            result = self._check_process_blacklist(proc_name)
+        if proc_name_n:
+            result = self._check_process_blacklist(proc_name_n)
             if result:
                 screenshot = self._capture_screen(target_hwnd)
                 self.callback("PROCESS_MATCH", result, screenshot, target_hwnd, target_pid)
                 return
 
-
+        # 창 제목 정규화 — 원본은 디버그 로그·_last_window_title 추적에만 사용
         title = self._get_active_window_title()
         if title and title != self._last_window_title:
             logger.debug(f"활성 창: {title}")
             self._last_window_title = title
 
-
-        if self._is_whitelisted(title):
+        title_n = self._normalize(title)
+        if self._is_whitelisted(title_n):
             logger.debug(f"화이트리스트 통과 (타이틀): {title}")
             return
 
-        result = self._check_window_title(title)
+        result = self._check_window_title(title_n)
         if result:
             screenshot = self._capture_screen(target_hwnd)
-
             self.callback("TITLE_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
-
         target_hwnd, target_pid = self._get_current_focus_info()
-
         screenshot = self._capture_screen(target_hwnd)
-
         url_text, body_text = self._split_zones(screenshot)
 
-
-        if self._is_whitelisted(url_text) or self._is_whitelisted(body_text):
+        # OCR 결과 정규화 — 이후 모든 비교는 정규화된 문자열로 수행
+        url_n = self._normalize(url_text)
+        body_n = self._normalize(body_text)
+        if self._is_whitelisted(url_n) or self._is_whitelisted(body_n):
             logger.debug(f"화이트리스트 통과 (OCR): {url_text or body_text}")
             return
 
-
-        result = self._check_url_keywords(url_text)
+        result = self._check_url_keywords(url_n)
         if result:
             self.callback("URL_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
-
-        result = self._check_content_keywords(body_text)
+        result = self._check_content_keywords(body_n)
         if result:
-
             self.callback("KEYWORD_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
@@ -285,24 +285,19 @@ class ScreenMonitor:
         except Exception:
             return ""
 
-    def _check_window_title(self, title: str):
+    def _check_window_title(self, title_n: str):
         """
-        창 제목이 TITLE_BLACKLIST의 키워드를 포함하는지 검사한다.
-
-        대소문자를 무시하고 부분 일치로 비교한다.
+        정규화된 창 제목이 TITLE_BLACKLIST 키워드를 포함하는지 검사한다.
 
         Args:
-            title: 검사할 창 제목 문자열.
+            title_n: _normalize()로 소문자 변환된 창 제목 문자열.
 
         Returns:
             탐지된 경우 사유 문자열, 탐지되지 않은 경우 None.
         """
-        if not title:
-            return None
-        title_lower = title.lower()
         for keyword in Config.TITLE_BLACKLIST:
-            if keyword in title_lower:
-                return f"창 타이틀 감지: '{keyword}' in '{title}'"
+            if keyword in title_n:
+                return f"창 타이틀 감지: '{keyword}' in '{title_n}'"
         return None
 
     def _capture_screen(self, hwnd: int | None = None) -> np.ndarray:
@@ -388,64 +383,60 @@ class ScreenMonitor:
             logger.error(f"OCR 오류: {e}")
             return ""
 
-    def _check_url_keywords(self, url_text: str):
+    def _check_url_keywords(self, url_n: str):
         """
-        URL 영역 텍스트가 URL_BLACKLIST의 키워드를 포함하는지 검사한다.
+        정규화된 URL 텍스트가 URL_BLACKLIST 키워드를 포함하는지 검사한다.
 
         OCR이 URL을 "youtube .com /watch" 처럼 공백 섞인 형태로 읽는 경우를 대비해
         원문과 공백 제거 버전 모두 검사한다.
 
         Args:
-            url_text: 화면 상단 영역의 OCR 텍스트.
+            url_n: _normalize()로 소문자 변환된 URL 영역 OCR 텍스트.
 
         Returns:
             탐지된 경우 사유 문자열, 탐지되지 않은 경우 None.
         """
-        if not url_text:
+        if not url_n:
             return None
-        url_lower = url_text.lower()
-        url_compact = url_lower.replace(" ", "")
+        url_compact = url_n.replace(" ", "")
         for keyword in Config.URL_BLACKLIST:
-            if keyword in url_lower or keyword in url_compact:
+            if keyword in url_n or keyword in url_compact:
                 return f"URL 키워드 감지: '{keyword}'"
         return None
 
-    def _check_content_keywords(self, body_text: str):
+    def _check_content_keywords(self, body_n: str):
         """
-        본문 텍스트에서 CONTENT_KEYWORDS와 일치하는 키워드를 수집하고,
+        정규화된 본문 텍스트에서 CONTENT_KEYWORDS와 일치하는 키워드를 수집하고,
         KEYWORD_THRESHOLD 이상이면 탐지로 판단한다.
 
         단일 키워드 오탐을 줄이기 위해 복수 키워드 동시 감지를 조건으로 한다.
 
         Args:
-            body_text: 화면 본문 영역의 OCR 텍스트.
+            body_n: _normalize()로 소문자 변환된 본문 OCR 텍스트.
 
         Returns:
             KEYWORD_THRESHOLD 이상 감지 시 일치 키워드 목록을 포함한 사유 문자열,
             미감지 시 None.
         """
-        if not body_text:
+        if not body_n:
             return None
-        body_lower = body_text.lower()
-        matched = [kw for kw in Config.CONTENT_KEYWORDS if kw in body_lower]
+        matched = [kw for kw in Config.CONTENT_KEYWORDS if kw in body_n]
         if len(matched) >= Config.KEYWORD_THRESHOLD:
             return f"콘텐츠 키워드 감지: {matched}"
         return None
 
-    def _is_whitelisted(self, text: str) -> bool:
+    def _is_whitelisted(self, text_n: str) -> bool:
         """
-        텍스트에 URL_WHITELIST 항목이 포함되어 있는지 확인한다.
+        정규화된 텍스트에 URL_WHITELIST 항목이 포함되어 있는지 확인한다.
 
         창 타이틀, URL 영역 텍스트, 본문 텍스트에 대해 각각 호출된다.
-        대소문자를 무시하고 부분 일치로 비교한다.
 
         Args:
-            text: 검사할 텍스트 문자열.
+            text_n: _normalize()로 소문자 변환된 텍스트 문자열.
 
         Returns:
             화이트리스트 항목이 포함되어 있으면 True, 아니면 False.
         """
-        if not text:
+        if not text_n:
             return False
-        text_lower = text.lower()
-        return any(wl in text_lower for wl in Config.URL_WHITELIST)
+        return any(wl in text_n for wl in Config.URL_WHITELIST)
