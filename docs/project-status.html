@@ -247,7 +247,7 @@
   <div class="subtitle">수업 방해 콘텐츠 탐지·차단 시스템 — 전체 프로젝트 스냅샷</div>
   <div class="meta">
     <span><strong>리포트 일자:</strong> 2026-05-17</span>
-    <span><strong>작성자:</strong> Sarhamon</span>
+    <span><strong>작성자:</strong> Sarhamon by Claude AI</span>
     <span><strong>리포지토리:</strong> CapstoneDesign (main 브랜치)</span>
   </div>
 </header>
@@ -320,7 +320,7 @@
     </div>
     <div class="stat inprogress">
       <span class="num">3/5+</span>
-      <span class="lbl">API Gateway 라우트 (추가 필요)</span>
+      <span class="lbl">API Gateway 라우트 (추가 보류)</span>
     </div>
     <div class="stat pending">
       <span class="num">0</span>
@@ -356,7 +356,7 @@
   </div>
 
   <div class="callout success">
-    <strong>전반적 평가:</strong> Phase 1 로컬 시스템은 운영 가능한 수준. Phase 2는 S3/Lambda/API Gateway가 이틀 전 배포 완료되어 데이터 인제스트·관리 경로가 골격을 갖춤. 남은 핵심은 ① DynamoDB 테이블 생성 및 연동, ② EC2 LLM 서버 프로비저닝, ③ 학생 PC 클라이언트 어댑터 작성.
+    <strong>전반적 평가:</strong> Phase 1 로컬 시스템은 운영 가능한 수준. Phase 2는 S3/Lambda/API Gateway가 이틀 전 배포 완료되어 데이터 인제스트·관리 경로가 골격을 갖춤 — 다만 본래 DynamoDB로 가려던 저장소가 외부 의존 작업 미해소로 S3 JSON fallback 상태고, API 조회 라우트 추가도 같은 사유로 보류 중. 외부 의존이 풀리는 동안 작업 가능한 영역(EC2 LLM 서버, 학생 PC 클라이언트 어댑터, 스키마 설계, 로컬 통합 테스트)을 우선 진행.
   </div>
 </details>
 
@@ -525,7 +525,7 @@
     <li class="done">S3 버킷 2개 생성 — <code>focusguard-data</code>(이벤트 로그), <code>focusguard-admin</code>(관리 페이지 정적 호스팅)</li>
     <li class="done">Lambda 함수 5개 배포 (Python 3.14, Zip, 2026-05-15경)</li>
     <li class="done">API Gateway <code>focusguard-api-v2</code> 배포 + 핵심 라우트 3개 구성</li>
-    <li class="inprogress">API Gateway 추가 라우트 (조회용 — fg-get-lists, fg-get-events 매핑 필요)</li>
+    <li class="pending">API Gateway 조회 라우트 추가 (fg-get-lists, fg-get-events) — 외부 의존 작업 대기 중</li>
     <li class="pending">DynamoDB 테이블 생성 (blocklist, allowlist)</li>
     <li class="pending">EC2(t3.xlarge) 인스턴스 프로비저닝 + Ollama 설치</li>
   </ul>
@@ -557,7 +557,7 @@
         <td><code>fg-update-lists</code></td>
         <td>blocklist/allowlist 갱신 (관리자)</td>
         <td><code>POST /list/update</code></td>
-        <td>저장소 연동 확인 필요 (DynamoDB 테이블 미생성 상태)</td>
+        <td>현재 <code>focusguard-data</code> S3에 JSON으로 저장 — race condition 위험 있어 DynamoDB 이전 예정</td>
       </tr>
       <tr>
         <td><code>fg-unlock</code></td>
@@ -569,13 +569,13 @@
         <td><code>fg-get-lists</code></td>
         <td>blocklist/allowlist 조회</td>
         <td><span class="badge badge-pending">미연결</span></td>
-        <td>관리자 페이지·학생 PC 양쪽 사용 예정 — 라우트 추가 필요</td>
+        <td>현재 <code>focusguard-data</code> S3 JSON 조회 — 라우트 추가 작업 외부 의존으로 보류</td>
       </tr>
       <tr>
         <td><code>fg-get-events</code></td>
         <td>이벤트 로그 조회 (관리자 대시보드)</td>
         <td><span class="badge badge-pending">미연결</span></td>
-        <td>S3 prefix 쿼리 또는 Athena 통합 예정 — 라우트 추가 필요</td>
+        <td>S3 prefix 쿼리 또는 Athena 통합 예정 — 라우트 추가 작업 외부 의존으로 보류</td>
       </tr>
     </tbody>
   </table>
@@ -595,17 +595,17 @@
   </table>
 
   <div class="callout warn">
-    <strong>확인 필요한 항목 (Open Questions):</strong>
+    <strong>현재 외부 의존으로 보류 중인 작업:</strong>
     <ul style="margin: 6px 0;">
-      <li><code>fg-update-lists</code> / <code>fg-get-lists</code>는 현재 무엇을 저장소로 쓰는가? (S3 JSON / Lambda 하드코딩 / 미동작 — 셋 중 하나)</li>
-      <li><code>fg-get-lists</code> / <code>fg-get-events</code>가 API Gateway에 매핑되지 않은 이유 — 의도된 보류인지, 다음 작업 큐인지</li>
+      <li>API Gateway 조회 라우트(<code>fg-get-lists</code>, <code>fg-get-events</code>) 추가 작업이 외부 처리 대기로 일시 보류</li>
+      <li>DynamoDB로의 저장소 이전 작업도 동일 사유로 보류 — 현재 S3 JSON로 fallback 운영 중</li>
     </ul>
   </div>
 
   <h3>클라우드 통합 코드 단계</h3>
   <ul class="checklist">
     <li class="done">Lambda 함수 코드 — 이벤트 인제스트 (fg-log-event, 배포 완료)</li>
-    <li class="done">Lambda 함수 코드 — blocklist/allowlist CRUD (fg-update-lists, fg-get-lists 배포 완료, 저장소 연동 확인 필요)</li>
+    <li class="done">Lambda 함수 코드 — blocklist/allowlist CRUD (fg-update-lists, fg-get-lists 배포 완료, <code>focusguard-data</code> S3 JSON 기반으로 동작 중)</li>
     <li class="done">Lambda 함수 코드 — 해제 처리 (fg-unlock, 배포 완료)</li>
     <li class="done">Lambda 함수 코드 — 이벤트 조회 (fg-get-events, 배포 완료)</li>
     <li class="pending"><code>llm_client.py</code>의 CloudLLMClient.analyze() 구현 (EC2 LLM 서버 호출)</li>
@@ -623,7 +623,7 @@
 
   <h3>우선순위 1 — 즉시 처리 (블로커 해제)</h3>
   <ul class="checklist">
-    <li class="pending"><strong>저장소 현황 확인:</strong> fg-update-lists / fg-get-lists가 현재 어디에 읽고 쓰는지 파악 → DynamoDB로 통일할 작업량 산정</li>
+    <li class="pending"><strong>S3 JSON → DynamoDB 마이그레이션 계획 수립:</strong> 현재 fg-update-lists / fg-get-lists가 <code>focusguard-data</code> S3에 JSON으로 운영 중 — 동시 쓰기 race condition 위험 해소를 위해 DynamoDB로 전환 필요</li>
     <li class="pending">API Gateway에 누락된 조회 라우트 추가 (fg-get-lists, fg-get-events)</li>
     <li class="pending">blocklist / allowlist 스키마 확정 (PK/SK 구조, GSI 필요성 검토)</li>
     <li class="pending">DynamoDB 테이블 생성 (blocklist, allowlist)</li>
@@ -688,6 +688,7 @@
 
   <h3>리스크</h3>
   <ul>
+    <li><strong>외부 의존 작업 대기</strong> → DynamoDB 이전·API 라우트 추가가 외부 처리 일정에 묶여 일정 압박 가능 → 그 사이 S3 JSON fallback으로 운영은 계속, 작업 가능한 영역(스키마 설계·로컬 통합 테스트·클라이언트 어댑터)을 우선 진행</li>
     <li><strong>EC2 단일 인스턴스 운영</strong> → 장애 시 모든 학생 PC의 LLM 검증 중단 → 캐스케이드 1~3단계는 학생 PC 로컬에서 처리하므로 핵심 차단 기능은 유지</li>
     <li><strong>학생 PC 인터넷 차단 시</strong> → API Gateway 호출 실패 → 로컬 fallback 모드 필요 (TODO)</li>
     <li><strong>MAC 주소 PII 처리</strong> → 외부 전송 금지, AWS 내부 저장에 대해서도 가이드 정립 필요</li>
@@ -712,6 +713,30 @@
         <li>배포된 AWS 인프라 현황 반영: S3 버킷 2개(focusguard-data, focusguard-admin), Lambda 함수 5개, API Gateway 라우트 3개 확인</li>
         <li>다음 단계 우선순위 5단계로 정리 (DynamoDB 통합 → 클라이언트 연동 → EC2 LLM 서버 → 본격 통합 → 운영 안정화)</li>
         <li>리포트 자체에 접기/펼치기 기능과 진행 기록 누적 구조 도입</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="log-entry">
+    <div class="log-date">2026-05-17 (일)</div>
+    <div class="log-body">
+      <strong>저장소 현황 확인.</strong>
+      <ul>
+        <li>fg-update-lists / fg-get-lists가 <code>focusguard-data</code> S3에 JSON 형태로 읽고 쓰는 상태로 운영 중임이 확인됨 (사용자 답변)</li>
+        <li>운영 자체는 동작 중이나 동시 쓰기 시 race condition 위험 존재 → DynamoDB 이전이 후속 작업으로 확정</li>
+        <li>본문 동기화: Lambda 함수 표, 확인 필요 항목, 우선순위 1, 통합 코드 단계 4곳 갱신</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="log-entry">
+    <div class="log-date">2026-05-17 (일)</div>
+    <div class="log-body">
+      <strong>현재 보류 사유 정리.</strong>
+      <ul>
+        <li>경위 확인: 본래 DynamoDB로 설계했으나 외부 의존 작업 미해소로 S3 JSON으로 fallback해 운영 중</li>
+        <li>이후 API 라우트 추가 작업도 외부 처리 일정에 묶여 진행이 보류된 상태 (관리자 측 업무 시간 영향)</li>
+        <li>본문 동기화: 확인 필요 항목 callout → "현재 외부 의존으로 보류 중인 작업"으로 재구성, Lambda 표·인프라 체크리스트의 라우트 항목 상태를 "보류"로 갱신, 리스크에 외부 의존 대기 항목 추가</li>
       </ul>
     </div>
   </div>
