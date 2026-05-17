@@ -27,4 +27,6 @@ env/
 dist/
 lambda/
 admin/
-docs/
+
+docs/*
+!docs/project-status.html
