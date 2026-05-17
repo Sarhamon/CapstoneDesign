@@ -44,22 +44,70 @@
   nav.toc a { color: var(--info); text-decoration: none; }
   nav.toc a:hover { text-decoration: underline; }
 
-  section.card {
+  .card {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 8px; padding: 28px; margin-bottom: 24px;
   }
-  section.card h2 {
+  .card h2 {
     margin-top: 0; font-size: 22px; color: var(--primary);
     border-bottom: 2px solid var(--accent); padding-bottom: 8px;
   }
-  section.card h3 {
+  .card h3 {
     color: var(--primary); font-size: 16px; margin-top: 24px; margin-bottom: 8px;
     border-left: 3px solid var(--accent); padding-left: 10px;
   }
-  section.card h4 {
+  .card h4 {
     color: var(--primary); font-size: 14px; margin-top: 18px; margin-bottom: 6px;
   }
   p { margin: 8px 0; font-size: 14px; }
+
+  /* details/summary (접기·펼치기) */
+  details.card > summary {
+    list-style: none; cursor: pointer; outline: none; user-select: none;
+  }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::before {
+    content: "▾"; display: inline-block; color: var(--accent);
+    font-size: 18px; margin-right: 12px;
+    transition: transform 0.2s ease; vertical-align: middle;
+    position: relative; top: -2px;
+  }
+  details.card:not([open]) > summary::before { transform: rotate(-90deg); }
+  details.card > summary h2 { display: inline-block; margin: 0; vertical-align: middle; }
+  details.card:not([open]) > summary h2 {
+    border-bottom: none; padding-bottom: 0;
+  }
+  details.card:not([open]) { padding-bottom: 18px; }
+
+  /* 전체 펼치기/접기 컨트롤 */
+  .toggle-all {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin: -16px 0 18px 0;
+  }
+  .toggle-all button {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 12px;
+    font-size: 12.5px; color: var(--primary); cursor: pointer;
+    font-family: inherit;
+  }
+  .toggle-all button:hover { background: var(--code-bg); }
+
+  /* 진행 기록 (로그) */
+  .log-entry {
+    display: grid; grid-template-columns: 130px 1fr;
+    gap: 18px; padding: 16px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-entry:first-child { padding-top: 4px; }
+  .log-date {
+    font-weight: 600; color: var(--primary); font-size: 13px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .log-body { font-size: 14px; line-height: 1.65; }
+  .log-body strong { color: var(--primary); }
+  .log-body ul { margin: 6px 0 0 0; padding-left: 20px; }
+  .log-body li { margin-bottom: 3px; }
 
   /* 진행률 바 */
   .progress-block {
@@ -186,7 +234,7 @@
 
   @media print {
     body { background: white; padding: 0; }
-    section.card { box-shadow: none; page-break-inside: avoid; border: none; }
+    .card { box-shadow: none; page-break-inside: avoid; border: none; }
     nav.toc { page-break-after: always; }
   }
 </style>
@@ -212,15 +260,20 @@
     <li><a href="#sec-arch">3. 전체 아키텍처 (Phase 1 vs Phase 2)</a></li>
     <li><a href="#sec-phase1">4. Phase 1 — 로컬 버전 (완료)</a></li>
     <li><a href="#sec-phase2">5. Phase 2 — 클라우드 마이그레이션 (진행 중)</a></li>
-    <li><a href="#sec-decisions">6. 오늘 세션 주요 결정 사항</a></li>
-    <li><a href="#sec-next">7. 다음 단계 (남은 작업)</a></li>
-    <li><a href="#sec-risks">8. 리스크 및 제약 사항</a></li>
+    <li><a href="#sec-next">6. 다음 단계 (남은 작업)</a></li>
+    <li><a href="#sec-risks">7. 리스크 및 제약 사항</a></li>
+    <li><a href="#sec-log">8. 진행 기록 (Progress Log)</a></li>
   </ol>
 </nav>
 
+<div class="toggle-all">
+  <button type="button" onclick="document.querySelectorAll('details.card').forEach(d => d.open = true)">전체 펼치기</button>
+  <button type="button" onclick="document.querySelectorAll('details.card').forEach(d => d.open = false)">전체 접기</button>
+</div>
+
 <!-- ============== 1. 프로젝트 개요 ============== -->
-<section class="card" id="sec-overview">
-  <h2>1. 프로젝트 개요</h2>
+<details class="card" open id="sec-overview">
+  <summary><h2>1. 프로젝트 개요</h2></summary>
 
   <h3>한 줄 소개</h3>
   <p>학생 PC에서 수업 중 방해되는 콘텐츠(소셜미디어·게임·동영상 등)를 자동 탐지하고 차단하는 시스템. 4단계 파이프라인(타이틀 → URL OCR → 본문 OCR → LLM)으로 오탐을 최소화하면서 실시간 차단 + 관리자 모니터링 기능을 제공한다.</p>
@@ -246,11 +299,11 @@
       <tr><td>클라우드 (Phase 2)</td><td>EC2, S3, Lambda, DynamoDB, API Gateway</td><td>AWS</td></tr>
     </tbody>
   </table>
-</section>
+</details>
 
 <!-- ============== 2. 진행 현황 요약 ============== -->
-<section class="card" id="sec-summary">
-  <h2>2. 진행 현황 요약</h2>
+<details class="card" open id="sec-summary">
+  <summary><h2>2. 진행 현황 요약</h2></summary>
 
   <div class="dashboard">
     <div class="stat done">
@@ -305,11 +358,11 @@
   <div class="callout success">
     <strong>전반적 평가:</strong> Phase 1 로컬 시스템은 운영 가능한 수준. Phase 2는 S3/Lambda/API Gateway가 이틀 전 배포 완료되어 데이터 인제스트·관리 경로가 골격을 갖춤. 남은 핵심은 ① DynamoDB 테이블 생성 및 연동, ② EC2 LLM 서버 프로비저닝, ③ 학생 PC 클라이언트 어댑터 작성.
   </div>
-</section>
+</details>
 
 <!-- ============== 3. 아키텍처 ============== -->
-<section class="card" id="sec-arch">
-  <h2>3. 전체 아키텍처 (Phase 1 vs Phase 2)</h2>
+<details class="card" open id="sec-arch">
+  <summary><h2>3. 전체 아키텍처 (Phase 1 vs Phase 2)</h2></summary>
 
   <div class="phase-grid">
     <div class="phase-box p1">
@@ -373,11 +426,11 @@
       <tr><td>관리자 모니터링</td><td>학생별 로컬 파일</td><td>S3 로그 + Athena 분석</td></tr>
     </tbody>
   </table>
-</section>
+</details>
 
 <!-- ============== 4. Phase 1 완료 현황 ============== -->
-<section class="card" id="sec-phase1">
-  <h2>4. Phase 1 — 로컬 버전 <span class="badge badge-done">완료</span></h2>
+<details class="card" open id="sec-phase1">
+  <summary><h2>4. Phase 1 — 로컬 버전 <span class="badge badge-done">완료</span></h2></summary>
 
   <h3>구현된 모듈 (src/)</h3>
   <table>
@@ -454,11 +507,11 @@
     <li class="done"><code>.env.example</code> — 환경변수 템플릿</li>
     <li class="done"><code>requirements.txt</code> / <code>requirements-dev.txt</code></li>
   </ul>
-</section>
+</details>
 
 <!-- ============== 5. Phase 2 진행 현황 ============== -->
-<section class="card" id="sec-phase2">
-  <h2>5. Phase 2 — 클라우드 마이그레이션 <span class="badge badge-inprogress">진행 중</span></h2>
+<details class="card" open id="sec-phase2">
+  <summary><h2>5. Phase 2 — 클라우드 마이그레이션 <span class="badge badge-inprogress">진행 중</span></h2></summary>
 
   <h3>설계·의사결정 단계</h3>
   <ul class="checklist">
@@ -562,44 +615,11 @@
     <li class="pending">DynamoDB 연동 (저장소 확정 후 Lambda 함수 수정)</li>
     <li class="pending">DynamoDB Local 기반 통합 테스트 작성</li>
   </ul>
-</section>
+</details>
 
-<!-- ============== 6. 오늘 세션 주요 결정 ============== -->
-<section class="card" id="sec-decisions">
-  <h2>6. 오늘 세션 주요 결정 사항 (2026-05-17)</h2>
-
-  <h3>저장소 선정</h3>
-  <table>
-    <thead><tr><th>데이터</th><th>저장소</th><th>이유</th></tr></thead>
-    <tbody>
-      <tr>
-        <td>이벤트 로그</td>
-        <td>S3 (<code>logs/YYYY/MM/DD/</code> 파티셔닝)</td>
-        <td>추가-전용·대용량·저비용, Athena 분석 용이</td>
-      </tr>
-      <tr>
-        <td>blocklist / allowlist</td>
-        <td>DynamoDB</td>
-        <td>원자적 CRUD, ms 단위 조회, 자동 백업; S3는 race condition 위험</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <h3>DynamoDB 준비 전략</h3>
-  <ul>
-    <li><strong>대기 동안 DynamoDB Local 활용</strong>: 스키마·코드 선개발 → 실제 테이블 생성 시 엔드포인트만 교체</li>
-    <li><strong>스키마 우선 확정</strong>: blocklist/allowlist의 PK/SK 구조와 GSI 필요성을 먼저 결정하고 테이블 생성</li>
-  </ul>
-
-  <h3>산출물</h3>
-  <ul>
-    <li><code>docs/project-status.html</code> — 본 진행 현황 리포트</li>
-  </ul>
-</section>
-
-<!-- ============== 7. 다음 단계 ============== -->
-<section class="card" id="sec-next">
-  <h2>7. 다음 단계 (남은 작업)</h2>
+<!-- ============== 6. 다음 단계 ============== -->
+<details class="card" open id="sec-next">
+  <summary><h2>6. 다음 단계 (남은 작업)</h2></summary>
 
   <h3>우선순위 1 — 즉시 처리 (블로커 해제)</h3>
   <ul class="checklist">
@@ -638,11 +658,11 @@
     <li class="pending">EC2 LLM 서버 모니터링 (CloudWatch Agent or 외부 헬스체크)</li>
     <li class="pending">S3 라이프사이클 정책 (오래된 로그 자동 삭제)</li>
   </ul>
-</section>
+</details>
 
-<!-- ============== 8. 리스크 ============== -->
-<section class="card" id="sec-risks">
-  <h2>8. 리스크 및 제약 사항</h2>
+<!-- ============== 7. 리스크 및 제약 사항 ============== -->
+<details class="card" open id="sec-risks">
+  <summary><h2>7. 리스크 및 제약 사항</h2></summary>
 
   <h3>제약</h3>
   <table>
@@ -672,10 +692,36 @@
     <li><strong>학생 PC 인터넷 차단 시</strong> → API Gateway 호출 실패 → 로컬 fallback 모드 필요 (TODO)</li>
     <li><strong>MAC 주소 PII 처리</strong> → 외부 전송 금지, AWS 내부 저장에 대해서도 가이드 정립 필요</li>
   </ul>
-</section>
+</details>
+
+<!-- ============== 8. 진행 기록 ============== -->
+<details class="card" open id="sec-log">
+  <summary><h2>8. 진행 기록 (Progress Log)</h2></summary>
+
+  <p style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">
+    작업이 진행될 때마다 가장 아래에 항목이 누적됩니다. 가장 오래된 항목이 위, 최신 항목이 아래.
+  </p>
+
+  <div class="log-entry">
+    <div class="log-date">2026-05-17 (일)</div>
+    <div class="log-body">
+      <strong>베이스라인 리포트 작성.</strong>
+      <ul>
+        <li>Phase 1(로컬 버전) 7개 모듈 완료 상태 정리</li>
+        <li>Phase 2 클라우드 아키텍처 확정: S3(로그) + DynamoDB(blocklist) + Lambda + API Gateway + EC2(LLM)</li>
+        <li>배포된 AWS 인프라 현황 반영: S3 버킷 2개(focusguard-data, focusguard-admin), Lambda 함수 5개, API Gateway 라우트 3개 확인</li>
+        <li>다음 단계 우선순위 5단계로 정리 (DynamoDB 통합 → 클라이언트 연동 → EC2 LLM 서버 → 본격 통합 → 운영 안정화)</li>
+        <li>리포트 자체에 접기/펼치기 기능과 진행 기록 누적 구조 도입</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 다음 작업 진행 시 아래에 새 .log-entry 블록을 추가하세요 -->
+
+</details>
 
 <footer>
-  FocusGuard 프로젝트 진행 현황 리포트 · 2026-05-17 · Sarhamon · CapstoneDesign
+  FocusGuard 프로젝트 진행 현황 리포트 · 마지막 업데이트 2026-05-17 · Sarhamon · CapstoneDesign
 </footer>
 
 </div>
