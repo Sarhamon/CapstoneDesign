@@ -3,3 +3,6 @@
 
 # 테스트 러너 (smoke import 테스트 등 tests/ 하위 검증용)
 pytest
+
+# AWS SDK (scripts/seed_dynamodb.py 등 관리자 측 도구용)
+boto3

@@ -322,9 +322,9 @@
       <span class="num">3/5+</span>
       <span class="lbl">API Gateway 라우트 (추가 보류)</span>
     </div>
-    <div class="stat pending">
-      <span class="num">0</span>
-      <span class="lbl">생성된 DynamoDB 테이블</span>
+    <div class="stat done">
+      <span class="num">2</span>
+      <span class="lbl">생성된 DynamoDB 테이블 (fg-blocklist, fg-allowlist)</span>
     </div>
     <div class="stat pending">
       <span class="num">0</span>
@@ -517,7 +517,7 @@
   <ul class="checklist">
     <li class="done">전체 아키텍처 결정: EC2(LLM) + Lambda + S3 + DynamoDB + API Gateway</li>
     <li class="done">데이터 저장소 분리: 이벤트 로그 → S3 / blocklist·allowlist → DynamoDB</li>
-    <li class="inprogress">데이터 모델 스키마 확정 (DynamoDB blocklist 키 구조)</li>
+    <li class="done">데이터 모델 스키마 확정 (DynamoDB blocklist/allowlist 키 구조) — <code>PK=class_id</code>, <code>SK=list_type#value</code></li>
   </ul>
 
   <h3>AWS 인프라 구축 단계</h3>
@@ -526,7 +526,7 @@
     <li class="done">Lambda 함수 5개 배포 (Python 3.14, Zip, 2026-05-15경)</li>
     <li class="done">API Gateway <code>focusguard-api-v2</code> 배포 + 핵심 라우트 3개 구성</li>
     <li class="pending">API Gateway 조회 라우트 추가 (fg-get-lists, fg-get-events) — 외부 의존 작업 대기 중</li>
-    <li class="pending">DynamoDB 테이블 생성 (blocklist, allowlist)</li>
+    <li class="done">DynamoDB 테이블 생성 — <code>fg-blocklist</code>, <code>fg-allowlist</code></li>
     <li class="pending">EC2(t3.xlarge) 인스턴스 프로비저닝 + Ollama 설치</li>
   </ul>
 
@@ -625,8 +625,8 @@
   <ul class="checklist">
     <li class="pending"><strong>S3 JSON → DynamoDB 마이그레이션 계획 수립:</strong> 현재 fg-update-lists / fg-get-lists가 <code>focusguard-data</code> S3에 JSON으로 운영 중 — 동시 쓰기 race condition 위험 해소를 위해 DynamoDB로 전환 필요</li>
     <li class="pending">API Gateway에 누락된 조회 라우트 추가 (fg-get-lists, fg-get-events)</li>
-    <li class="pending">blocklist / allowlist 스키마 확정 (PK/SK 구조, GSI 필요성 검토)</li>
-    <li class="pending">DynamoDB 테이블 생성 (blocklist, allowlist)</li>
+    <li class="done">blocklist / allowlist 스키마 확정 — 분리 테이블, <code>PK=class_id</code>, <code>SK=list_type#value</code>, GSI 미사용</li>
+    <li class="done">DynamoDB 테이블 생성 — <code>fg-blocklist</code>, <code>fg-allowlist</code></li>
   </ul>
 
   <h3>우선순위 2 — 클라이언트 통합</h3>
@@ -700,13 +700,13 @@
   <summary><h2>8. 진행 기록 (Progress Log)</h2></summary>
 
   <p style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">
-    작업이 진행될 때마다 가장 아래에 항목이 누적됩니다. 가장 오래된 항목이 위, 최신 항목이 아래.
+    같은 날의 작업은 한 항목으로 묶여 누적됩니다. 위쪽이 오래된 날짜, 아래쪽이 최신 날짜.
   </p>
 
   <div class="log-entry">
     <div class="log-date">2026-05-17 (일)</div>
     <div class="log-body">
-      <strong>베이스라인 리포트 작성.</strong>
+      <p><strong>베이스라인 리포트 작성.</strong></p>
       <ul>
         <li>Phase 1(로컬 버전) 7개 모듈 완료 상태 정리</li>
         <li>Phase 2 클라우드 아키텍처 확정: S3(로그) + DynamoDB(blocklist) + Lambda + API Gateway + EC2(LLM)</li>
@@ -714,25 +714,15 @@
         <li>다음 단계 우선순위 5단계로 정리 (DynamoDB 통합 → 클라이언트 연동 → EC2 LLM 서버 → 본격 통합 → 운영 안정화)</li>
         <li>리포트 자체에 접기/펼치기 기능과 진행 기록 누적 구조 도입</li>
       </ul>
-    </div>
-  </div>
 
-  <div class="log-entry">
-    <div class="log-date">2026-05-17 (일)</div>
-    <div class="log-body">
-      <strong>저장소 현황 확인.</strong>
+      <p><strong>저장소 현황 확인.</strong></p>
       <ul>
         <li>fg-update-lists / fg-get-lists가 <code>focusguard-data</code> S3에 JSON 형태로 읽고 쓰는 상태로 운영 중임이 확인됨 (사용자 답변)</li>
         <li>운영 자체는 동작 중이나 동시 쓰기 시 race condition 위험 존재 → DynamoDB 이전이 후속 작업으로 확정</li>
         <li>본문 동기화: Lambda 함수 표, 확인 필요 항목, 우선순위 1, 통합 코드 단계 4곳 갱신</li>
       </ul>
-    </div>
-  </div>
 
-  <div class="log-entry">
-    <div class="log-date">2026-05-17 (일)</div>
-    <div class="log-body">
-      <strong>현재 보류 사유 정리.</strong>
+      <p><strong>현재 보류 사유 정리.</strong></p>
       <ul>
         <li>경위 확인: 본래 DynamoDB로 설계했으나 외부 의존 작업 미해소로 S3 JSON으로 fallback해 운영 중</li>
         <li>이후 API 라우트 추가 작업도 외부 처리 일정에 묶여 진행이 보류된 상태 (관리자 측 업무 시간 영향)</li>
@@ -741,7 +731,56 @@
     </div>
   </div>
 
-  <!-- 다음 작업 진행 시 아래에 새 .log-entry 블록을 추가하세요 -->
+  <div class="log-entry">
+    <div class="log-date">2026-05-21 (목)</div>
+    <div class="log-body">
+      <p><strong><code>llm_client.py</code> 주석/오류 메시지 정합성 정리.</strong></p>
+      <ul>
+        <li>line 5 모듈 docstring의 "추후" 항목을 "EC2 자체 호스팅 Ollama HTTP 호출"로 교체</li>
+        <li><code>CloudLLMClient</code> 클래스 docstring에서 "Anthropic Claude API 또는 OpenAI API 연동 예정" TODO 제거 → EC2 Ollama HTTP 호출 방향으로 재작성하고, 외부 매니지드 LLM API 금지 제약을 주석에 명시</li>
+        <li><code>analyze()</code>의 NotImplementedError 메시지를 "4월 말 이후 구현 예정"에서 실제 블로커("EC2 LLM 서버 프로비저닝 및 엔드포인트 설정이 선행되어야 함")로 변경</li>
+        <li>코드 동작은 그대로(미구현 상태 유지) — 다음 사람이 잘못된 방향(외부 API 연동)으로 구현할 위험 제거가 목적</li>
+      </ul>
+
+      <p><strong>DynamoDB blocklist/allowlist 스키마 확정.</strong></p>
+      <ul>
+        <li>구성: 분리 테이블 — <code>fg-blocklist</code>, <code>fg-allowlist</code> 두 개 (기존 Lambda <code>fg-*</code> 네이밍 컨벤션과 통일)</li>
+        <li>키: <code>PK = class_id</code> (String, 현재는 <code>"GLOBAL"</code> 단일값, 클래스 단위 정책 확장 대비), <code>SK = sk</code> (String, 값 형식은 <code>&lt;list_type&gt;#&lt;value&gt;</code>, 예: <code>process#chrome.exe</code>, <code>url#youtube.com</code>, <code>title#배달의민족</code>, <code>content_keyword#게임공략</code>)</li>
+        <li>비키 속성: <code>enabled</code> (Bool), <code>added_by</code> (String), <code>added_at</code> (ISO8601 String), <code>reason</code> (optional String)</li>
+        <li>GSI: 미사용 (역방향 조회 access pattern 없음 — 필요 시 추후 추가)</li>
+        <li>구분자 선택: <code>#</code> — AWS single-table design 공식 컨벤션, value 도메인(process명·도메인·제목·키워드)에서 충돌 가능성 사실상 0, 정렬 순서가 알파벳보다 앞이라 begins_with 쿼리 직관적</li>
+        <li>분리 vs 단일 테이블 검토: 분리 채택 — Phase 1의 <code>blacklists.yaml</code>/<code>whitelists.yaml</code>과 1:1 매핑이 깔끔하고, IAM에서 Lambda별 권한 분리가 가능해 사고 방지에 유리</li>
+        <li>SK 속성명 혼선: 최초 안내 시 "<code>list_type#value</code>"가 속성 이름인지 값 형식인지 모호하게 적어 테이블이 SK 속성명 <code>list_type#value</code>로 생성됐다가, 시드 적재 전 두 테이블 삭제 후 SK 속성명 <code>sk</code>로 재생성 (데이터 손실 0)</li>
+      </ul>
+
+      <p><strong>DynamoDB 테이블 생성 완료.</strong></p>
+      <ul>
+        <li>실제 생성된 테이블: <code>fg-blocklist</code>, <code>fg-allowlist</code> (스키마 결정 직후 사용자가 AWS 콘솔에서 직접 생성)</li>
+        <li>이전 논의의 가칭 <code>focusguard-blocklist</code>/<code>focusguard-allowlist</code> 대신 기존 Lambda <code>fg-*</code> 네이밍과 통일 — 리포트의 가칭 표기도 같이 갱신</li>
+        <li>본문 동기화: 대시보드 통계(DynamoDB 0→2), Phase 2 인프라 체크리스트, 우선순위 1 체크리스트 갱신</li>
+      </ul>
+
+      <p><strong>Lambda 역할 DynamoDB 권한 추가 신청 (Slack 발송).</strong></p>
+      <ul>
+        <li>대상 역할: <code>capstone-l3k1-lambda-role</code></li>
+        <li>요청 액션: <code>dynamodb:GetItem</code>, <code>Query</code>, <code>PutItem</code>, <code>UpdateItem</code>, <code>DeleteItem</code>, <code>BatchGetItem</code>, <code>BatchWriteItem</code> 7종</li>
+        <li>대상 리소스: <code>fg-blocklist</code>, <code>fg-allowlist</code> (ap-northeast-2)</li>
+        <li>사용 Lambda: <code>fg-update-lists</code> (Write), <code>fg-get-lists</code> (Read)</li>
+        <li>상태: 적용 회신 대기 중</li>
+      </ul>
+
+      <p><strong>DynamoDB 시드 스크립트 작성 → 본인 자격증명 시도 → 영구 차단 확인 → Lambda 경유 경로로 전환 결정.</strong></p>
+      <ul>
+        <li>위치: <code>scripts/seed_dynamodb.py</code> — <code>data/blacklists.yaml</code>/<code>whitelists.yaml</code>을 <code>fg-blocklist</code>/<code>fg-allowlist</code>에 적재. <code>--dry-run</code> 지원, <code>boto3.Table.batch_writer()</code>로 25개 단위 배치 + UnprocessedItem 자동 재시도. <code>requirements-dev.txt</code>에 <code>boto3</code> 추가</li>
+        <li>예정 적재량: <code>fg-blocklist</code> 292개, <code>fg-allowlist</code> 19개 (스크립트 자체는 정상 동작)</li>
+        <li>실행 결과: <code>AccessDeniedException</code> — 학생 사용자(<code>2024100161</code>) 정책 <code>CapstoneSelfManagement</code>에 <code>dynamodb:BatchWriteItem</code> <strong>명시적 Deny</strong>가 부착돼 있음. IAM 규칙상 Explicit Deny는 Allow로 풀 수 없어 본인 자격증명으로는 영구 불가</li>
+        <li>결정: Lambda 권한 신청 회신 후, <code>fg-update-lists</code>를 DynamoDB 기반 + batch 입력 지원으로 개정, 시드 스크립트가 API Gateway 경유로 호출하는 방식으로 전환. 그 전까지는 시드 작업 대기</li>
+        <li>메모리 갱신: 본인 자격증명 직접 적재 경로는 영구 차단된다는 사실을 <code>project_phase2_architecture</code>에 반영</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 새 날짜 작업: 위 패턴으로 새 .log-entry 블록 추가. 같은 날짜 추가 작업은 그 날 블록 안에 <p><strong>...</strong></p> + <ul> 쌍을 덧붙이세요. -->
 
 </details>
 

@@ -2,7 +2,7 @@
 llm_client.py
 LLM 추상화 레이어
 - 현재: LocalLLMClient (Ollama)
-- 추후: CloudLLMClient (Anthropic / OpenAI) 로 교체
+- 추후: EC2 자체 호스팅 Ollama HTTP 호출
 """
 
 import logging
@@ -16,9 +16,6 @@ logger = logging.getLogger(__name__)
 class LLMClient(ABC):
     """
     LLM 클라이언트 공통 인터페이스.
-
-    로컬(Ollama)과 클라우드(Anthropic / OpenAI) 구현체를 동일한 인터페이스로
-    교체할 수 있도록 추상화한다.
 
     반환값 규격:
         "BLOCK"  — 수업 방해 콘텐츠로 판단, 즉시 차단
@@ -171,16 +168,20 @@ URL: {url_text or '없음'}
 
 class CloudLLMClient(LLMClient):
     """
-    클라우드 LLM API를 사용하는 클라이언트 (미구현).
+    EC2 자체 호스팅 Ollama 서버를 HTTP로 호출하는 클라이언트 (미구현).
 
     config.USE_CLOUD_LLM = True로 설정 시 get_llm_client()가 이 클래스를 반환한다.
     LocalLLMClient와 동일한 analyze() 인터페이스를 구현해야 한다.
 
-    TODO: Anthropic Claude API 또는 OpenAI API 연동 예정
+    TODO: EC2(t3.xlarge)에 Ollama 설치 후, 엔드포인트를 환경변수로 주입해
+    LocalLLMClient.analyze()와 동일한 /api/chat 호출 로직을 재사용한다.
+    외부 매니지드 LLM API(Anthropic/OpenAI/Groq 등)는 사용하지 않는다.
     """
 
     def analyze(self, window_title: str, url_text: str, ocr_text: str) -> str:
-        raise NotImplementedError("클라우드 LLM은 4월 말 이후 구현 예정")
+        raise NotImplementedError(
+            "CloudLLMClient 미구현: EC2 LLM 서버 프로비저닝 및 엔드포인트 설정이 선행되어야 함"
+        )
 
 
 def get_llm_client() -> LLMClient:
