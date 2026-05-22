@@ -346,13 +346,13 @@
   </div>
   <div class="progress-block">
     <span class="label">Phase 2 — AWS 인프라 구축</span>
-    <div class="progress-bar"><div class="partial" style="width: 65%;"></div></div>
-    <span class="pct">65%</span>
+    <div class="progress-bar"><div class="partial" style="width: 70%;"></div></div>
+    <span class="pct">70%</span>
   </div>
   <div class="progress-block">
     <span class="label">Phase 2 — 클라우드 통합 코드</span>
-    <div class="progress-bar"><div class="partial" style="width: 40%;"></div></div>
-    <span class="pct">40%</span>
+    <div class="progress-bar"><div class="partial" style="width: 55%;"></div></div>
+    <span class="pct">55%</span>
   </div>
 
   <div class="callout success">
@@ -557,7 +557,7 @@
         <td><code>fg-update-lists</code></td>
         <td>blocklist/allowlist 갱신 (관리자)</td>
         <td><code>POST /list/update</code></td>
-        <td>현재 <code>focusguard-data</code> S3에 JSON으로 저장 — race condition 위험 있어 DynamoDB 이전 예정</td>
+        <td>DynamoDB(<code>fg-blocklist</code>/<code>fg-allowlist</code>) 기반으로 전환 완료 — <code>action="bulk_add"</code> 지원</td>
       </tr>
       <tr>
         <td><code>fg-unlock</code></td>
@@ -569,7 +569,7 @@
         <td><code>fg-get-lists</code></td>
         <td>blocklist/allowlist 조회</td>
         <td><span class="badge badge-pending">미연결</span></td>
-        <td>현재 <code>focusguard-data</code> S3 JSON 조회 — 라우트 추가 작업 외부 의존으로 보류</td>
+        <td>DynamoDB Query 기반으로 전환 완료 — 단, <code>GET /list</code> 라우트 추가는 여전히 보류</td>
       </tr>
       <tr>
         <td><code>fg-get-events</code></td>
@@ -605,14 +605,14 @@
   <h3>클라우드 통합 코드 단계</h3>
   <ul class="checklist">
     <li class="done">Lambda 함수 코드 — 이벤트 인제스트 (fg-log-event, 배포 완료)</li>
-    <li class="done">Lambda 함수 코드 — blocklist/allowlist CRUD (fg-update-lists, fg-get-lists 배포 완료, <code>focusguard-data</code> S3 JSON 기반으로 동작 중)</li>
+    <li class="done">Lambda 함수 코드 — blocklist/allowlist CRUD (fg-update-lists, fg-get-lists DynamoDB 기반으로 전환·재배포 완료, bulk_add 지원)</li>
     <li class="done">Lambda 함수 코드 — 해제 처리 (fg-unlock, 배포 완료)</li>
     <li class="done">Lambda 함수 코드 — 이벤트 조회 (fg-get-events, 배포 완료)</li>
     <li class="pending"><code>llm_client.py</code>의 CloudLLMClient.analyze() 구현 (EC2 LLM 서버 호출)</li>
     <li class="pending"><code>event_logger.py</code>에 S3Sink/RemoteSink 추가 (학생 PC → API Gateway 어댑터 포함)</li>
     <li class="pending">학생 PC 클라이언트 → <code>focusguard-api-v2</code> HTTP 호출 어댑터</li>
     <li class="pending">관리자 대시보드(focusguard-admin) ↔ Lambda 조회 API 연결</li>
-    <li class="pending">DynamoDB 연동 (저장소 확정 후 Lambda 함수 수정)</li>
+    <li class="done">DynamoDB 연동 (fg-update-lists / fg-get-lists 두 Lambda를 DynamoDB 기반으로 재작성·배포 완료)</li>
     <li class="pending">DynamoDB Local 기반 통합 테스트 작성</li>
   </ul>
 </details>
@@ -776,6 +776,28 @@
         <li>실행 결과: <code>AccessDeniedException</code> — 학생 사용자(<code>2024100161</code>) 정책 <code>CapstoneSelfManagement</code>에 <code>dynamodb:BatchWriteItem</code> <strong>명시적 Deny</strong>가 부착돼 있음. IAM 규칙상 Explicit Deny는 Allow로 풀 수 없어 본인 자격증명으로는 영구 불가</li>
         <li>결정: Lambda 권한 신청 회신 후, <code>fg-update-lists</code>를 DynamoDB 기반 + batch 입력 지원으로 개정, 시드 스크립트가 API Gateway 경유로 호출하는 방식으로 전환. 그 전까지는 시드 작업 대기</li>
         <li>메모리 갱신: 본인 자격증명 직접 적재 경로는 영구 차단된다는 사실을 <code>project_phase2_architecture</code>에 반영</li>
+      </ul>
+
+      <p><strong>DynamoDB 권한 부여 회신 → Lambda 스모크 테스트로 7종 액션 검증 통과.</strong></p>
+      <ul>
+        <li>같은 날 Slack 회신으로 신청 7종(<code>GetItem</code>, <code>Query</code>, <code>PutItem</code>, <code>UpdateItem</code>, <code>DeleteItem</code>, <code>BatchGetItem</code>, <code>BatchWriteItem</code>) 권한이 <code>capstone-l3k1-lambda-role</code>에 적용됨을 확인</li>
+        <li>본인 자격증명은 여전히 <code>CapstoneSelfManagement</code> 정책의 Explicit Deny로 차단되므로, 검증 경로는 Lambda 경유로 한정 — IAM Policy Simulator도 학생 권한으로는 접근 불가</li>
+        <li>검증용 스크립트 작성: <code>scripts/lambda_smoke_test.py</code> — PK <code>class_id="SMOKE_TEST"</code>로 운영 데이터(<code>GLOBAL</code>)와 격리, 7종 액션을 순차 호출 후 잔여 데이터 일괄 삭제, <code>ConsistentRead=True</code>로 eventual consistency 회피</li>
+        <li>실행: 신규 Lambda <code>fg-dynamodb-smoke-test</code> 생성(Python 3.12, 타임아웃 30초, 실행 역할 <code>capstone-l3k1-lambda-role</code>), 코드 붙여넣고 빈 이벤트로 Invoke</li>
+        <li>결과: <code>fg-blocklist</code>/<code>fg-allowlist</code> 양쪽 모두 7종 액션 전부 <code>OK</code> — Duration 1019ms, Init 487ms, Memory 92MB/128MB. 잔여 테스트 데이터 0건</li>
+        <li>판단: 신청 권한 명세대로 Lambda 런타임에서 모두 동작. 3단계(<code>fg-update-lists</code>/<code>fg-get-lists</code>를 DynamoDB 기반으로 개정 + API Gateway <code>GET /list</code> 라우트 추가 + 시드 스크립트를 API Gateway 경유로 전환) 진입 가능</li>
+        <li>본문 동기화: 대시보드 진행률 바(Phase 2 — AWS 인프라 구축) 65% → 70%로 갱신</li>
+      </ul>
+
+      <p><strong>fg-update-lists / fg-get-lists를 DynamoDB 기반으로 전환 → 배포·검증 완료.</strong></p>
+      <ul>
+        <li>코드 작성: <code>scripts/fg-update-list.py</code> — S3 JSON 직접 수정 경로 제거, PutItem/DeleteItem 기반 단건 CRUD + <code>action="bulk_add"</code> 추가하여 BatchWriteItem 지원 (seed 스크립트가 API Gateway 경유로 호출할 진입점)</li>
+        <li>코드 작성: <code>scripts/fg-get-list.py</code> — S3 JSON 조회 제거, <code>Query(KeyConditionExpression=class_id="GLOBAL")</code> 기반, 페이지네이션 포함. 응답 JSON 형식은 기존 fg-get-list와 호환 유지 (<code>blacklists</code>/<code>whitelists</code> 키 구조, SK prefix <code>content_keyword</code> → 응답 키 <code>content_keywords</code> 단수→복수 변환), <code>enabled=true</code>만 포함, 메타데이터(added_by/added_at/reason)는 응답 제외</li>
+        <li>list_type 매핑(6종)은 기존 S3 버전과 동일하게 유지 — 관리자 페이지 클라이언트 변경 불필요</li>
+        <li>환경변수: <code>BLOCKLIST_TABLE</code>/<code>ALLOWLIST_TABLE</code>/<code>CLASS_ID</code> 모두 코드 기본값 보유. 콘솔 추가 설정 불필요. 기존 <code>DATA_BUCKET</code>은 새 코드에서 미사용(잔존 무해)</li>
+        <li>배포: 사용자가 콘솔에서 두 Lambda 함수 코드 통째 교체 후 Deploy. <code>fg-update-lists</code>는 타임아웃 30초로 조정(bulk_add 대비)</li>
+        <li>검증: <code>fg-get-lists</code> 빈 호출 → Status 200, 응답 형식 정확히 가이드와 일치 (Duration 406ms, Init 485ms, Memory 92MB/128MB). <code>url_blacklist</code>에 <code>test.com</code> 1건 잔존 확인 — <code>fg-update-lists</code>의 add 경로 정상 동작 검증됨 (검증 데이터 정리는 사용자 측에서 필요 시 별도 수행)</li>
+        <li>본문 동기화: 진행률 바(Phase 2 — 클라우드 통합 코드) 40% → 55%, Lambda 함수 표의 fg-update-lists / fg-get-lists 비고를 DynamoDB 기반으로 갱신, Phase 2 클라우드 통합 코드 체크리스트의 blocklist/allowlist CRUD 항목과 "DynamoDB 연동" 항목 done 처리</li>
       </ul>
     </div>
   </div>
