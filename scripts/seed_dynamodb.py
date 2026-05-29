@@ -172,7 +172,7 @@ def main():
         except json.JSONDecodeError:
             pass
 
-    print(f"\n적재 완료 — fg-blocklist {total_block}건, fg-allowlist {total_allow}건")
+    print(f"\n적재 완료 - fg-blocklist {total_block}건, fg-allowlist {total_allow}건")
     return 0
 
 
