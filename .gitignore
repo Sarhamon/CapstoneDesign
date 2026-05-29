@@ -22,6 +22,7 @@ env/
 
 # 환경변수
 .env
+install/.env
 
 # 빌드 결과물
 dist/

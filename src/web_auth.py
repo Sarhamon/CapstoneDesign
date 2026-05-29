@@ -9,10 +9,8 @@ LAN 기반 해제 인증 + 관리자 대시보드 HTTP 서버 (Phase 1)
 import http.server
 import json
 import logging
-import secrets
 import socket
 import threading
-import time
 import urllib.parse
 import yaml
 from typing import Callable, Optional
@@ -21,80 +19,6 @@ from config import config, reload_lists
 
 logger = logging.getLogger(__name__)
 
-
-_HTML_PAGE = """<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>FocusGuard 해제</title>
-    <style>
-        * { box-sizing: border-box; }
-        body {
-            font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-            max-width: 420px; margin: 0 auto; padding: 32px 20px;
-            background: #1a1a2e; color: #fff; min-height: 100vh;
-        }
-        h1 { color: #e94560; text-align: center; margin: 0 0 8px; }
-        p { text-align: center; color: #c0c0c0; margin: 0 0 24px; }
-        input {
-            width: 100%; padding: 18px; font-size: 28px; text-align: center;
-            margin: 8px 0; border-radius: 10px; border: none;
-            background: #0f3460; color: #fff; letter-spacing: 8px;
-            font-family: Consolas, monospace;
-        }
-        button {
-            width: 100%; padding: 16px; font-size: 18px; font-weight: bold;
-            background: #e94560; color: #fff; border: none; border-radius: 10px;
-            cursor: pointer; margin-top: 8px;
-        }
-        button:active { background: #c0392b; }
-        #msg { text-align: center; margin-top: 20px; font-size: 16px; min-height: 24px; }
-        .ok { color: #4ade80; }
-        .err { color: #f87171; }
-    </style>
-</head>
-<body>
-    <h1>FocusGuard 해제</h1>
-    <p>학생 화면의 해제 코드를 입력하세요.</p>
-    <input id="code" type="text" inputmode="numeric" autocomplete="off"
-           placeholder="000000" maxlength="12" autofocus>
-    <button id="btn" onclick="submit()">해제</button>
-    <div id="msg"></div>
-    <script>
-        const input = document.getElementById('code');
-        const btn = document.getElementById('btn');
-        const msg = document.getElementById('msg');
-        function submit() {
-            const code = input.value.trim();
-            if (!code) return;
-            btn.disabled = true;
-            fetch('/unlock', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'code=' + encodeURIComponent(code)
-            }).then(r => r.json()).then(data => {
-                if (data.success) {
-                    msg.textContent = '해제되었습니다.';
-                    msg.className = 'ok';
-                    input.disabled = true;
-                } else {
-                    msg.textContent = data.error || '잘못된 코드입니다.';
-                    msg.className = 'err';
-                    btn.disabled = false;
-                    input.select();
-                }
-            }).catch(e => {
-                msg.textContent = '오류: ' + e;
-                msg.className = 'err';
-                btn.disabled = false;
-            });
-        }
-        input.addEventListener('keypress', e => { if (e.key === 'Enter') submit(); });
-    </script>
-</body>
-</html>
-"""
 
 
 _ADMIN_HTML = """<!DOCTYPE html>
@@ -449,89 +373,16 @@ class WebAuthServer:
         - HTTP 핸들러는 별도 스레드에서 실행되므로 콜백도 별도 스레드에서 호출된다.
     """
 
-    def __init__(self, port: int = 8080, max_failed_attempts: int = 5):
+    def __init__(self, port: int = 8080):
         self.port = port
-        self._max_failed_attempts = max_failed_attempts
-        self._lock = threading.Lock()
         self._yaml_lock = threading.Lock()
-        self._current_code: Optional[str] = None
-        self._expires_at: float = 0.0
-        self._failed_attempts: int = 0
-        self._on_success: Optional[Callable[[], None]] = None
-        self._on_lockout: Optional[Callable[[], None]] = None
         self._status_provider: Optional[Callable[[], dict]] = None
         self._server: Optional[http.server.HTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
-    def set_on_success(self, callback: Callable[[], None]) -> None:
-        """해제 코드 인증 성공 시 호출할 콜백을 등록한다."""
-        self._on_success = callback
-
-    def set_on_lockout(self, callback: Callable[[], None]) -> None:
-        """
-        연속 실패 임계 초과로 활성 코드가 무효화되었을 때 호출할 콜백을 등록한다.
-        오버레이가 QR 패널 → 요청 버튼 상태로 즉시 복귀하도록 신호를 보낼 때 사용한다.
-        """
-        self._on_lockout = callback
-
     def set_status_provider(self, provider: Callable[[], dict]) -> None:
         """관리자 대시보드 /admin/status 에 노출할 시스템 상태 딕셔너리를 반환하는 콜백을 등록한다."""
         self._status_provider = provider
-
-    def set_code(self, code: str, ttl_seconds: int) -> None:
-        """단일 활성 해제 코드를 설정한다. 기존 코드와 실패 카운터는 즉시 리셋된다."""
-        with self._lock:
-            self._current_code = code
-            self._expires_at = time.time() + ttl_seconds
-            self._failed_attempts = 0
-
-    def clear_code(self) -> None:
-        """활성 해제 코드를 제거한다 (만료/취소 시)."""
-        with self._lock:
-            self._current_code = None
-            self._expires_at = 0.0
-            self._failed_attempts = 0
-
-    def _validate(self, submitted: str) -> tuple[bool, str]:
-        """
-        제출된 코드를 활성 코드와 비교한다.
-
-        성공 시 코드는 즉시 소멸한다 (일회성).
-        연속 실패가 max_failed_attempts에 도달하면 코드를 무효화하고 lockout 콜백을 호출한다.
-        콜백은 락 해제 후에 호출하여 데드락 위험을 차단한다.
-        """
-        triggered_lockout = False
-        with self._lock:
-            if not self._current_code:
-                return False, "활성화된 해제 요청이 없습니다."
-            if time.time() > self._expires_at:
-                self._current_code = None
-                self._failed_attempts = 0
-                return False, "해제 코드가 만료되었습니다."
-
-            if secrets.compare_digest(submitted, self._current_code):
-                self._current_code = None
-                self._failed_attempts = 0
-                return True, ""
-
-            self._failed_attempts += 1
-            remaining = self._max_failed_attempts - self._failed_attempts
-            if remaining <= 0:
-                self._current_code = None
-                self._failed_attempts = 0
-                triggered_lockout = True
-                msg = "잘못된 코드를 여러 번 입력하여 무효화되었습니다. 학생에게 새 코드를 요청하세요."
-            else:
-                msg = f"잘못된 코드입니다. (남은 시도 {remaining}회)"
-
-        if triggered_lockout:
-            logger.warning("[브루트포스 방어] 연속 실패 한도 초과 → 활성 코드 무효화")
-            if self._on_lockout:
-                try:
-                    self._on_lockout()
-                except Exception:
-                    logger.exception("on_lockout 콜백 처리 중 오류")
-        return False, msg
 
     @staticmethod
     def _read_events(limit: int = 100) -> list[dict]:
@@ -738,22 +589,7 @@ class WebAuthServer:
                 raw = self.rfile.read(length).decode("utf-8", errors="replace")
                 params = urllib.parse.parse_qs(raw)
 
-                if self.path == "/unlock":
-                    submitted = (params.get("code") or [""])[0].strip()
-                    ok, err = outer._validate(submitted)
-                    if ok:
-                        logger.info("[웹 해제 성공] 원격 인증 완료")
-                        if outer._on_success:
-                            try:
-                                outer._on_success()
-                            except Exception:
-                                logger.exception("on_success 콜백 처리 중 오류")
-                        self._json(200, {"success": True})
-                    else:
-                        logger.warning("[웹 해제 실패] %s", err)
-                        self._json(200, {"success": False, "error": err})
-
-                elif self.path in ("/admin/lists/add", "/admin/lists/remove"):
+                if self.path in ("/admin/lists/add", "/admin/lists/remove"):
                     list_type = (params.get("list_type") or [""])[0].strip()
                     entry     = (params.get("entry") or [""])[0].strip()
                     if not entry:

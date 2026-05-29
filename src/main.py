@@ -101,18 +101,12 @@ class FocusGuard:
         self._last_detection_time: str = ""
 
         # 해제 인증 HTTP 서버 초기화; 인증 결과를 큐로 메인 스레드에 전달
-        self.web_auth = WebAuthServer(
-            port=config.WEB_AUTH_PORT,
-            max_failed_attempts=config.UNLOCK_MAX_FAILED_ATTEMPTS,
-        )
-        self.web_auth.set_on_success(lambda: self._ui_queue.put(("web-unlock",)))
-        self.web_auth.set_on_lockout(lambda: self._ui_queue.put(("auth-locked",)))
+        self.web_auth = WebAuthServer(port=config.WEB_AUTH_PORT)
 
         # 오버레이 UI와 화면 모니터 초기화
         self.overlay = BlockOverlay(
             on_unlock_callback=self._on_unlock,
             ui_queue=self._ui_queue,
-            web_auth_server=self.web_auth,
         )
         self.monitor = ScreenMonitor(
             on_detect_callback=self._on_detect,

@@ -11,7 +11,11 @@ from typing import Annotated, ClassVar
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_BASE_DIR = Path(__file__).resolve().parent.parent
+import sys as _sys
+if getattr(_sys, 'frozen', False):
+    _BASE_DIR = Path(_sys.executable).parent
+else:
+    _BASE_DIR = Path(__file__).resolve().parent.parent
 _DATA_DIR = _BASE_DIR / "data"
 
 
@@ -45,10 +49,8 @@ class Config(BaseSettings):
     # ── HTTP 서버 ──────────────────────────────────────────────────────────────
     WEB_AUTH_PORT: Annotated[int, Field(ge=1, le=65535)] = 8080         # 해제 인증 서버 포트
 
-    # ── 해제 코드 ──────────────────────────────────────────────────────────────
-    UNLOCK_CODE_TTL: Annotated[int, Field(gt=0)] = 120                  # 코드 유효 시간 (초)
-    UNLOCK_CODE_LENGTH: Annotated[int, Field(ge=4, le=12)] = 6          # 코드 자릿수
-    UNLOCK_MAX_FAILED_ATTEMPTS: Annotated[int, Field(ge=1)] = 5         # 연속 실패 허용 횟수
+    # ── 해제 요청 ──────────────────────────────────────────────────────────────
+    UNLOCK_CODE_TTL: Annotated[int, Field(gt=0)] = 120                  # 클라우드 승인 대기 타임아웃 (초)
 
     # ── 기능 플래그 ────────────────────────────────────────────────────────────
     KEYBOARD_BLOCK_ENABLED: bool = False                                 # 오버레이 중 키보드 전체 차단

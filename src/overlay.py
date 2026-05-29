@@ -10,7 +10,6 @@ import queue
 import logging
 import ctypes
 import ctypes.wintypes
-import secrets
 import threading
 import time
 import uuid
@@ -18,13 +17,7 @@ from datetime import datetime
 
 import requests
 
-import qrcode
-from qrcode.constants import ERROR_CORRECT_M
-from qrcode.image.pil import PilImage
-from PIL import Image, ImageTk
-
 from config import config
-from web_auth import WebAuthServer, get_lan_ip
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +82,6 @@ class BlockOverlay:
         self,
         on_unlock_callback=None,
         ui_queue: queue.Queue | None = None,
-        web_auth_server: WebAuthServer | None = None,
     ):
         """
         Args:
@@ -97,22 +89,17 @@ class BlockOverlay:
                 signature: (block_reason: str) -> None
             ui_queue: 서브 스레드에서 UI 이벤트를 전달할 큐.
                       ("show", reason) / ("hide",) / ("web-unlock",) 튜플을 넣는다.
-            web_auth_server: 웹 기반 해제 인증을 담당하는 HTTP 서버.
-                             None이면 오버레이는 해제 불가 상태가 된다.
         """
         self.on_unlock = on_unlock_callback
         self._ui_queue = ui_queue
-        self._web_auth = web_auth_server
         self._active = False
         self._reason = ""
-
 
         self.root = None
         self._overlay_frame = None
         self._action_frame = None
         self._countdown_label = None
         self._time_label = None
-        self._qr_photo = None
         self._unlock_expires_at = 0.0
         self._kb_hook = None
         self._kb_hook_func = None
@@ -158,10 +145,7 @@ class BlockOverlay:
 
                     logger.info("[큐 수신] web-unlock 이벤트")
                     self._on_web_unlock()
-                elif event == "auth-locked":
 
-                    logger.info("[큐 수신] auth-locked 이벤트")
-                    self._on_auth_locked()
         except queue.Empty:
             pass
         finally:
@@ -226,9 +210,6 @@ class BlockOverlay:
         if config.KEYBOARD_BLOCK_ENABLED:
             self._uninstall_kb_hook()
         self._unlock_expires_at = 0.0
-        if self._web_auth:
-            self._web_auth.clear_code()
-        self._qr_photo = None
         self._countdown_label = None
         self._action_frame = None
         if self._overlay_frame:
@@ -255,20 +236,6 @@ class BlockOverlay:
         if self.on_unlock:
             self.on_unlock(self._reason)
         self._hide()
-
-    def _on_auth_locked(self):
-        """
-        WebAuthServer 가 연속 실패로 코드를 무효화했을 때 ui_queue를 거쳐 호출된다.
-
-        QR 패널을 즉시 닫고 요청 버튼 상태로 되돌려, 학생이 새 코드를 발급받을 수
-        있도록 한다. 오버레이 자체는 닫지 않는다 (인증 실패는 차단 해제 사유가 아님).
-        """
-        if not self._active or self._unlock_expires_at == 0.0:
-            return
-        logger.warning("[인증 잠김] 연속 실패로 코드 무효화 → 요청 버튼으로 복귀")
-        self._unlock_expires_at = 0.0
-
-        self._build_request_button()
 
     def _build_ui(self):
         """
@@ -413,43 +380,20 @@ class BlockOverlay:
             return "unknown"
 
     def _request_unlock(self):
-        """
-        "해제 요청" 버튼 클릭 시 호출된다.
-
-        CLOUD_API_URL이 설정된 경우 클라우드 해제 요청을 전송하고 승인 폴링을 시작한다.
-        미설정 시 로컬 코드 + QR 방식(Phase 1)으로 폴백한다.
-        """
-        if config.CLOUD_API_URL:
-            device_id = self._get_device_id()
-            self._unlock_expires_at = time.time() + config.UNLOCK_CODE_TTL
-            threading.Thread(
-                target=self._send_cloud_unlock_request,
-                args=(device_id,),
-                daemon=True,
-            ).start()
-            threading.Thread(
-                target=self._poll_cloud_approval,
-                args=(device_id, self._unlock_expires_at),
-                daemon=True,
-            ).start()
-            self._show_waiting_panel()
-        else:
-            self._request_unlock_local()
-
-    def _request_unlock_local(self):
-        """CLOUD_API_URL 미설정 시 로컬 코드 + QR 방식으로 해제 요청을 처리한다."""
-        if self._web_auth is None:
-            logger.error("WebAuthServer 미설정 — 해제 요청을 처리할 수 없습니다.")
-            return
-        lower = 10 ** (config.UNLOCK_CODE_LENGTH - 1)
-        span  = 10 ** config.UNLOCK_CODE_LENGTH - lower
-        code  = str(secrets.randbelow(span) + lower)
-        ttl = config.UNLOCK_CODE_TTL
-        self._web_auth.set_code(code, ttl)
-        self._unlock_expires_at = time.time() + ttl
-        url = f"http://{get_lan_ip()}:{config.WEB_AUTH_PORT}/"
-        logger.info(f"[해제 요청] 코드 발급 (TTL {ttl}s) | URL: {url}")
-        self._show_qr_panel(url, code)
+        """해제 요청 버튼 클릭 시 클라우드 해제 요청을 전송하고 승인 폴링을 시작한다."""
+        device_id = self._get_device_id()
+        self._unlock_expires_at = time.time() + config.UNLOCK_CODE_TTL
+        threading.Thread(
+            target=self._send_cloud_unlock_request,
+            args=(device_id,),
+            daemon=True,
+        ).start()
+        threading.Thread(
+            target=self._poll_cloud_approval,
+            args=(device_id, self._unlock_expires_at),
+            daemon=True,
+        ).start()
+        self._show_waiting_panel()
 
     def _send_cloud_unlock_request(self, device_id: str) -> None:
         try:
@@ -507,56 +451,6 @@ class BlockOverlay:
         self._countdown_label.pack()
         self._update_countdown()
 
-    def _show_qr_panel(self, url: str, code: str):
-        """QR 코드, 해제 코드, 남은 시간 카운트다운을 액션 영역에 그린다."""
-        self._clear_action_frame()
-        if not self._action_frame:
-            return
-
-        tk.Label(
-            self._action_frame,
-            text="교수자가 폰으로 QR을 스캔한 뒤, 아래 코드를 입력하면 해제됩니다.",
-            font=("맑은 고딕", 12),
-            fg="#c0c0c0", bg="#1a1a2e",
-        ).pack(pady=(0, 12))
-
-
-        self._qr_photo = self._make_qr_photo(url)
-        tk.Label(
-            self._action_frame,
-            image=self._qr_photo,
-            bg="#ffffff", bd=6,
-        ).pack(pady=(0, 8))
-
-        tk.Label(
-            self._action_frame,
-            text=url,
-            font=("Consolas", 11),
-            fg="#888899", bg="#1a1a2e",
-        ).pack(pady=(0, 14))
-
-        tk.Label(
-            self._action_frame,
-            text="해제 코드",
-            font=("맑은 고딕", 10),
-            fg="#a8a8b3", bg="#1a1a2e",
-        ).pack()
-        tk.Label(
-            self._action_frame,
-            text=code,
-            font=("Consolas", 32, "bold"),
-            fg="#ffffff", bg="#1a1a2e",
-        ).pack(pady=(0, 6))
-
-        self._countdown_label = tk.Label(
-            self._action_frame,
-            text="",
-            font=("맑은 고딕", 11),
-            fg="#a8a8b3", bg="#1a1a2e",
-        )
-        self._countdown_label.pack()
-        self._update_countdown()
-
     def _update_countdown(self):
         """
         해제 코드 만료까지 남은 시간을 1초 간격으로 갱신한다.
@@ -571,10 +465,8 @@ class BlockOverlay:
 
         remaining = int(self._unlock_expires_at - time.time())
         if remaining <= 0:
-            logger.info("[해제 요청 만료] 코드 무효화, 요청 버튼 복귀")
+            logger.info("[해제 요청 만료] 요청 버튼 복귀")
             self._unlock_expires_at = 0.0
-            if self._web_auth:
-                self._web_auth.clear_code()
             self._build_request_button()
             return
 
@@ -585,27 +477,6 @@ class BlockOverlay:
 
             return
         self.root.after(1000, self._update_countdown)
-
-    @staticmethod
-    def _make_qr_photo(url: str, size: int = 220) -> ImageTk.PhotoImage:
-        """주어진 URL을 담은 QR 코드를 ImageTk.PhotoImage로 반환한다."""
-        qr = qrcode.QRCode(
-            version=None,
-            error_correction=ERROR_CORRECT_M,
-            box_size=10,
-            border=2,
-        )
-        qr.add_data(url)
-        qr.make(fit=True)
-
-        wrapper = qr.make_image(
-            image_factory=PilImage,
-            fill_color="black",
-            back_color="white",
-        )
-        pil_img = wrapper.get_image().convert("RGB")
-        pil_img = pil_img.resize((size, size), Image.Resampling.NEAREST)
-        return ImageTk.PhotoImage(pil_img)
 
     def _update_time(self):
         """
