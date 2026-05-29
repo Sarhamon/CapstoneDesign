@@ -25,7 +25,6 @@ env/
 
 # 빌드 결과물
 dist/
-lambda/
 admin/
 
 docs/*
