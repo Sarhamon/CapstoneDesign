@@ -351,8 +351,8 @@
   </div>
   <div class="progress-block">
     <span class="label">Phase 2 — 클라우드 통합 코드</span>
-    <div class="progress-bar"><div class="partial" style="width: 70%;"></div></div>
-    <span class="pct">70%</span>
+    <div class="progress-bar"><div class="partial" style="width: 80%;"></div></div>
+    <span class="pct">80%</span>
   </div>
 
   <div class="callout success">
@@ -611,7 +611,7 @@
     <li class="done"><code>llm_client.py</code>의 CloudLLMClient.analyze() 구현 완료 — EC2 Ollama HTTP 호출, CLOUD_LLM_HOST 설정 후 즉시 사용 가능</li>
     <li class="done"><code>event_logger.py</code>에 RemoteSink / MultiSink 추가 — <code>CLOUD_API_URL</code> 설정 시 자동으로 <code>POST /event/log</code>로 이벤트 이중 전송 (학생 PC → API Gateway 어댑터 구현 완료)</li>
     <li class="done">학생 PC 클라이언트 → <code>focusguard-api-v2</code> 이벤트 전송 어댑터 (RemoteSink로 구현 완료)</li>
-    <li class="pending">관리자 대시보드(focusguard-admin) ↔ Lambda 조회 API 연결</li>
+    <li class="inprogress">관리자 대시보드(focusguard-admin) — 페이지 구축·S3 배포 완료, API 연동 코드 구현 완료. 라우트 추가 후 즉시 동작</li>
     <li class="done">DynamoDB 연동 (fg-update-lists / fg-get-lists 두 Lambda를 DynamoDB 기반으로 재작성·배포 완료)</li>
     <li class="pending">DynamoDB Local 기반 통합 테스트 작성</li>
   </ul>
@@ -634,7 +634,7 @@
   <ul class="checklist">
     <li class="done">학생 PC 클라이언트 → <code>focusguard-api-v2</code> 이벤트 전송 어댑터 (RemoteSink 구현 완료 — 라우트 연결만 남음)</li>
     <li class="pending">시드 스크립트 API Gateway 경유로 전환 → DynamoDB 초기 데이터 적재</li>
-    <li class="pending">관리자 페이지(focusguard-admin) → 조회 API 연동</li>
+    <li class="inprogress">관리자 페이지(focusguard-admin) → 조회 API 연동 (페이지·코드 완료, 라우트 추가 대기)</li>
     <li class="pending">end-to-end 테스트: 학생 PC → API Gateway → Lambda → S3/DynamoDB 적재 확인</li>
   </ul>
 
@@ -841,6 +841,14 @@
         <li><code>scripts/fg-update-list.py</code>(DynamoDB PutItem/DeleteItem + bulk_add 기반) → <code>lambda/fg_update_lists.py</code>로 교체</li>
         <li>두 파일을 Lambda 콘솔에서 교체·배포 필요 (코드 준비 완료)</li>
         <li>현황 정정: API Gateway 라우트가 실제로는 0개임을 확인 — <code>apigateway:PUT</code> IAM Explicit Deny로 인해 추가 불가. Slack 권한 신청 완료</li>
+      </ul>
+
+      <p><strong>관리자 대시보드 재구축 — <code>docs/admin/</code> 분리 + S3 배포 완료.</strong></p>
+      <ul>
+        <li>기존 단일 파일(<code>focusguard_admin.html</code>)을 <code>docs/admin/index.html</code> · <code>style.css</code> · <code>app.js</code> 3파일로 분리</li>
+        <li>API 연동 추가: 사이드바 API URL 입력 (localStorage 유지) + 연결 상태 표시 / <code>GET /list</code> 자동 로드 / 항목 추가·삭제 시 <code>POST /list/update</code> 호출 / <code>GET /events</code> 버튼 추가 / config.py 내보내기 제거</li>
+        <li><code>focusguard-admin</code> S3 버킷에 3파일 업로드 → 정적 웹사이트 정상 동작 확인</li>
+        <li>API Gateway 라우트 추가 후 URL 입력창에 엔드포인트 저장하면 즉시 전체 연동 가능</li>
       </ul>
 
   <!-- 새 날짜 작업: 위 패턴으로 새 .log-entry 블록 추가. 같은 날짜 추가 작업은 그 날 블록 안에 <p><strong>...</strong></p> + <ul> 쌍을 덧붙이세요. -->
