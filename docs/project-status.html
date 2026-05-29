@@ -608,7 +608,7 @@
     <li class="done">Lambda 함수 코드 — blocklist/allowlist CRUD (fg-update-lists, fg-get-lists DynamoDB 기반으로 전환·재배포 완료, bulk_add 지원)</li>
     <li class="done">Lambda 함수 코드 — 해제 처리 (fg-unlock, 배포 완료)</li>
     <li class="done">Lambda 함수 코드 — 이벤트 조회 (fg-get-events, 배포 완료)</li>
-    <li class="pending"><code>llm_client.py</code>의 CloudLLMClient.analyze() 구현 (EC2 LLM 서버 호출)</li>
+    <li class="done"><code>llm_client.py</code>의 CloudLLMClient.analyze() 구현 완료 — EC2 Ollama HTTP 호출, CLOUD_LLM_HOST 설정 후 즉시 사용 가능</li>
     <li class="done"><code>event_logger.py</code>에 RemoteSink / MultiSink 추가 — <code>CLOUD_API_URL</code> 설정 시 자동으로 <code>POST /event/log</code>로 이벤트 이중 전송 (학생 PC → API Gateway 어댑터 구현 완료)</li>
     <li class="done">학생 PC 클라이언트 → <code>focusguard-api-v2</code> 이벤트 전송 어댑터 (RemoteSink로 구현 완료)</li>
     <li class="pending">관리자 대시보드(focusguard-admin) ↔ Lambda 조회 API 연결</li>
@@ -816,6 +816,15 @@
       </ul>
     </div>
   </div>
+
+      <p><strong><code>llm_client.py</code> CloudLLMClient.analyze() 구현.</strong></p>
+      <ul>
+        <li>공통 로직(SYSTEM_PROMPT, _parse_response, HTTP 호출)을 <code>LLMClient</code> 베이스 클래스의 <code>_call_ollama(host, ...)</code>로 추출</li>
+        <li><code>LocalLLMClient.analyze()</code> → <code>_call_ollama(config.OLLAMA_HOST, ...)</code> 위임으로 단순화</li>
+        <li><code>CloudLLMClient.analyze()</code> → <code>_call_ollama(config.CLOUD_LLM_HOST, ...)</code> 구현 완료. CLOUD_LLM_HOST 미설정 시 UNSURE 반환으로 안전하게 fallback</li>
+        <li><code>config.py</code>에 <code>CLOUD_LLM_HOST</code> 추가, <code>.env</code> / <code>.env.example</code> 동기화</li>
+        <li>EC2 프로비저닝 후 <code>CLOUD_LLM_HOST</code>와 <code>USE_CLOUD_LLM=true</code> 설정만 하면 즉시 전환 가능</li>
+      </ul>
 
   <!-- 새 날짜 작업: 위 패턴으로 새 .log-entry 블록 추가. 같은 날짜 추가 작업은 그 날 블록 안에 <p><strong>...</strong></p> + <ul> 쌍을 덧붙이세요. -->
 

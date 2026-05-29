@@ -1,8 +1,8 @@
 """
 llm_client.py
 LLM 추상화 레이어
-- 현재: LocalLLMClient (Ollama)
-- 추후: EC2 자체 호스팅 Ollama HTTP 호출
+- 현재: LocalLLMClient (로컬 Ollama), CloudLLMClient (EC2 자체 호스팅 Ollama)
+- 공통 HTTP 호출 로직은 LLMClient._call_ollama()에서 관리
 """
 
 import logging
@@ -22,32 +22,6 @@ class LLMClient(ABC):
         "ALLOW"  — 수업 관련 콘텐츠로 판단, 허용
         "UNSURE" — 판단 불가, 차단하지 않고 통과
     """
-
-    @abstractmethod
-    def analyze(self, window_title: str, url_text: str, ocr_text: str) -> str:
-        """
-        화면 정보를 분석하여 차단 여부를 반환한다.
-
-        Args:
-            window_title: 활성 창 제목 또는 탐지 사유 문자열.
-            url_text:     화면 상단 URL 표시줄 영역의 OCR 텍스트.
-            ocr_text:     화면 본문 영역의 OCR 텍스트 (최대 500자).
-
-        Returns:
-            "BLOCK" | "ALLOW" | "UNSURE"
-        """
-        pass
-
-
-class LocalLLMClient(LLMClient):
-    """
-    Ollama 로컬 서버를 통해 LLM을 호출하는 클라이언트.
-
-    Ollama가 localhost에서 실행 중이어야 하며, config.OLLAMA_MODEL에 지정된
-    모델이 사전에 pull되어 있어야 한다.
-    temperature=0.0으로 설정하여 매번 동일한 판단을 유도한다.
-    """
-
 
     SYSTEM_PROMPT = """당신은 수업 중 학생 화면의 콘텐츠를 분류하는 판단기입니다.
 명백한 차단 대상(게임 런처, SNS 앱 등)은 이미 걸러진 상태이므로,
@@ -78,15 +52,30 @@ UNSURE — 판단 불가 (차단하지 않고 통과)
 
 반드시 BLOCK, ALLOW, UNSURE 중 하나만 출력하세요. 다른 말은 절대 하지 마세요."""
 
+    @abstractmethod
     def analyze(self, window_title: str, url_text: str, ocr_text: str) -> str:
+        """
+        화면 정보를 분석하여 차단 여부를 반환한다.
+
+        Args:
+            window_title: 활성 창 제목 또는 탐지 사유 문자열.
+            url_text:     화면 상단 URL 표시줄 영역의 OCR 텍스트.
+            ocr_text:     화면 본문 영역의 OCR 텍스트 (최대 500자).
+
+        Returns:
+            "BLOCK" | "ALLOW" | "UNSURE"
+        """
+        pass
+
+    def _call_ollama(self, host: str, window_title: str, url_text: str, ocr_text: str) -> str:
         """
         Ollama /api/chat 엔드포인트를 호출하여 차단 여부를 판단한다.
 
         타임아웃 또는 네트워크 오류 발생 시 UNSURE를 반환하여 오탐(차단 누락)보다
-        미탐(허용)을 선택한다. 소형 LLM의 불안정한 출력 형식은 _parse_response()로
-        보정한다.
+        미탐(허용)을 선택한다.
 
         Args:
+            host:         Ollama 서버 기본 URL (예: http://localhost:11434).
             window_title: 창 제목 또는 탐지 사유.
             url_text:     URL 영역 OCR 텍스트.
             ocr_text:     본문 영역 OCR 텍스트.
@@ -94,7 +83,6 @@ UNSURE — 판단 불가 (차단하지 않고 통과)
         Returns:
             "BLOCK" | "ALLOW" | "UNSURE"
         """
-
         user_msg = f"""창 제목: {window_title or '없음'}
 URL: {url_text or '없음'}
 화면 텍스트: {ocr_text[:500] if ocr_text else '없음'}"""
@@ -114,17 +102,15 @@ URL: {url_text or '없음'}
 
         try:
             resp = requests.post(
-                f"{config.OLLAMA_HOST}/api/chat",
+                f"{host}/api/chat",
                 json=payload,
                 timeout=config.LLM_TIMEOUT,
             )
             resp.raise_for_status()
-
             raw = resp.json()["message"]["content"].strip().upper()
             return self._parse_response(raw)
 
         except requests.exceptions.Timeout:
-
             logger.warning("LLM 응답 타임아웃 → UNSURE 처리")
             return "UNSURE"
         except Exception as e:
@@ -151,6 +137,18 @@ URL: {url_text or '없음'}
         logger.warning(f"LLM 응답 파싱 실패: '{raw}' → UNSURE 처리")
         return "UNSURE"
 
+
+class LocalLLMClient(LLMClient):
+    """
+    로컬 Ollama 서버를 통해 LLM을 호출하는 클라이언트.
+
+    Ollama가 localhost에서 실행 중이어야 하며, config.OLLAMA_MODEL에 지정된
+    모델이 사전에 pull되어 있어야 한다.
+    """
+
+    def analyze(self, window_title: str, url_text: str, ocr_text: str) -> str:
+        return self._call_ollama(config.OLLAMA_HOST, window_title, url_text, ocr_text)
+
     def warmup(self):
         """
         앱 시작 시 Ollama 모델을 미리 메모리에 로드한다.
@@ -168,27 +166,23 @@ URL: {url_text or '없음'}
 
 class CloudLLMClient(LLMClient):
     """
-    EC2 자체 호스팅 Ollama 서버를 HTTP로 호출하는 클라이언트 (미구현).
+    EC2 자체 호스팅 Ollama 서버를 HTTP로 호출하는 클라이언트.
 
     config.USE_CLOUD_LLM = True로 설정 시 get_llm_client()가 이 클래스를 반환한다.
-    LocalLLMClient와 동일한 analyze() 인터페이스를 구현해야 한다.
-
-    TODO: EC2(t3.xlarge)에 Ollama 설치 후, 엔드포인트를 환경변수로 주입해
-    LocalLLMClient.analyze()와 동일한 /api/chat 호출 로직을 재사용한다.
+    config.CLOUD_LLM_HOST에 EC2 Ollama 서버 주소를 설정해야 한다.
     외부 매니지드 LLM API(Anthropic/OpenAI/Groq 등)는 사용하지 않는다.
     """
 
     def analyze(self, window_title: str, url_text: str, ocr_text: str) -> str:
-        raise NotImplementedError(
-            "CloudLLMClient 미구현: EC2 LLM 서버 프로비저닝 및 엔드포인트 설정이 선행되어야 함"
-        )
+        if not config.CLOUD_LLM_HOST:
+            logger.error("CLOUD_LLM_HOST가 설정되지 않음 → UNSURE 처리")
+            return "UNSURE"
+        return self._call_ollama(config.CLOUD_LLM_HOST, window_title, url_text, ocr_text)
 
 
 def get_llm_client() -> LLMClient:
     """
     config.USE_CLOUD_LLM 값에 따라 적절한 LLMClient 구현체를 반환한다.
-
-    로컬/클라우드 전환 시 이 함수 하나만 수정하면 되도록 설계되었다.
 
     Returns:
         LocalLLMClient (USE_CLOUD_LLM=False) 또는

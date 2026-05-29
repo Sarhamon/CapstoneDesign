@@ -72,6 +72,7 @@ class Config(BaseSettings):
     # ── 클라우드 API ────────────────────────────────────────────────────────────
     CLOUD_API_URL: str = ""                                              # API Gateway 기본 URL (빈 문자열이면 원격 전송 비활성)
     REMOTE_SINK_TIMEOUT: Annotated[int, Field(gt=0)] = 5                # RemoteSink HTTP 타임아웃 (초)
+    CLOUD_LLM_HOST: str = ""                                             # EC2 Ollama 서버 주소 (USE_CLOUD_LLM=True 시 필수)
 
     # ── 경로 (env 비관리 — 소스 파일 위치 기반) ───────────────────────────────
     BASE_DIR: ClassVar[Path] = _BASE_DIR
