@@ -175,3 +175,5 @@ Get-Content logs/events.jsonl
 ```
 
 진행 현황 상세: [docs/index.html](docs/index.html)
+
+관리자 대시보드 (캡스톤 기간 한정): [docs/admin/index.html](docs/admin/index.html)
