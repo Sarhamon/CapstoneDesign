@@ -69,6 +69,10 @@ class Config(BaseSettings):
     OLLAMA_MODEL: str = "gemma3:4b"                                      # 사용할 Ollama 모델명
     LLM_TIMEOUT: Annotated[int, Field(gt=0)] = 60                       # Ollama 응답 타임아웃 (초)
 
+    # ── 클라우드 API ────────────────────────────────────────────────────────────
+    CLOUD_API_URL: str = ""                                              # API Gateway 기본 URL (빈 문자열이면 원격 전송 비활성)
+    REMOTE_SINK_TIMEOUT: Annotated[int, Field(gt=0)] = 5                # RemoteSink HTTP 타임아웃 (초)
+
     # ── 경로 (env 비관리 — 소스 파일 위치 기반) ───────────────────────────────
     BASE_DIR: ClassVar[Path] = _BASE_DIR
     LOG_DIR: ClassVar[Path] = _BASE_DIR / "logs"

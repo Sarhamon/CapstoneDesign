@@ -351,8 +351,8 @@
   </div>
   <div class="progress-block">
     <span class="label">Phase 2 — 클라우드 통합 코드</span>
-    <div class="progress-bar"><div class="partial" style="width: 55%;"></div></div>
-    <span class="pct">55%</span>
+    <div class="progress-bar"><div class="partial" style="width: 70%;"></div></div>
+    <span class="pct">70%</span>
   </div>
 
   <div class="callout success">
@@ -609,8 +609,8 @@
     <li class="done">Lambda 함수 코드 — 해제 처리 (fg-unlock, 배포 완료)</li>
     <li class="done">Lambda 함수 코드 — 이벤트 조회 (fg-get-events, 배포 완료)</li>
     <li class="pending"><code>llm_client.py</code>의 CloudLLMClient.analyze() 구현 (EC2 LLM 서버 호출)</li>
-    <li class="pending"><code>event_logger.py</code>에 S3Sink/RemoteSink 추가 (학생 PC → API Gateway 어댑터 포함)</li>
-    <li class="pending">학생 PC 클라이언트 → <code>focusguard-api-v2</code> HTTP 호출 어댑터</li>
+    <li class="done"><code>event_logger.py</code>에 RemoteSink / MultiSink 추가 — <code>CLOUD_API_URL</code> 설정 시 자동으로 <code>POST /event/log</code>로 이벤트 이중 전송 (학생 PC → API Gateway 어댑터 구현 완료)</li>
+    <li class="done">학생 PC 클라이언트 → <code>focusguard-api-v2</code> 이벤트 전송 어댑터 (RemoteSink로 구현 완료)</li>
     <li class="pending">관리자 대시보드(focusguard-admin) ↔ Lambda 조회 API 연결</li>
     <li class="done">DynamoDB 연동 (fg-update-lists / fg-get-lists 두 Lambda를 DynamoDB 기반으로 재작성·배포 완료)</li>
     <li class="pending">DynamoDB Local 기반 통합 테스트 작성</li>
@@ -802,12 +802,27 @@
     </div>
   </div>
 
+  <div class="log-entry">
+    <div class="log-date">2026-05-29 (금)</div>
+    <div class="log-body">
+      <p><strong><code>event_logger.py</code>에 RemoteSink / MultiSink 추가 — 학생 PC → API Gateway 이벤트 전송 어댑터 구현.</strong></p>
+      <ul>
+        <li><code>RemoteSink</code> 클래스 추가 — <code>config.CLOUD_API_URL</code>을 기반으로 <code>{base_url}/event/log</code>에 <code>POST</code> 전송. 타임아웃·네트워크 오류는 로깅만 하고 예외 비전파 (모니터 루프 보호)</li>
+        <li><code>MultiSink</code> 클래스 추가 — 여러 sink에 순서대로 쓰고, 하나 실패해도 나머지에 계속 기록</li>
+        <li><code>EventLogger.__init__</code> 갱신 — <code>CLOUD_API_URL</code>이 설정되어 있으면 <code>MultiSink([LocalJSONLSink, RemoteSink])</code> 자동 선택, 미설정이면 기존 LocalJSONLSink 단독 사용 (하위 호환)</li>
+        <li><code>config.py</code>에 <code>CLOUD_API_URL</code>(string, 기본값 빈 문자열), <code>REMOTE_SINK_TIMEOUT</code>(int, 기본값 5초) 추가</li>
+        <li><code>.env.example</code>에 새 설정 항목 문서화</li>
+        <li>본문 동기화: 통합 코드 체크리스트 RemoteSink / 클라이언트 어댑터 done 처리, 진행률 바(Phase 2 — 클라우드 통합 코드) 55% → 70%</li>
+      </ul>
+    </div>
+  </div>
+
   <!-- 새 날짜 작업: 위 패턴으로 새 .log-entry 블록 추가. 같은 날짜 추가 작업은 그 날 블록 안에 <p><strong>...</strong></p> + <ul> 쌍을 덧붙이세요. -->
 
 </details>
 
 <footer>
-  FocusGuard 프로젝트 진행 현황 리포트 · 마지막 업데이트 2026-05-17 · CapstoneDesign
+  FocusGuard 프로젝트 진행 현황 리포트 · 마지막 업데이트 2026-05-29 · CapstoneDesign
 </footer>
 
 </div>

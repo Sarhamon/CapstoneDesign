@@ -16,6 +16,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
+
+import requests
+
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -130,6 +133,46 @@ class LocalJSONLSink(EventSink):
             logger.error(f"로그 저장 오류: {e}")
 
 
+class RemoteSink(EventSink):
+    """이벤트를 API Gateway POST /event/log 로 HTTP 전송한다.
+
+    네트워크 오류 및 타임아웃은 로깅만 하고 예외를 전파하지 않는다 —
+    원격 전송 실패가 메인 모니터링 루프를 중단시키면 안 되기 때문이다.
+    screenshot은 바이너리 전송 비용이 크므로 무시한다.
+    """
+
+    def __init__(self, base_url: str, timeout: int = 5):
+        self.url = base_url.rstrip("/") + "/event/log"
+        self.timeout = timeout
+
+    def write(self, event: Event, screenshot: Any = None) -> None:
+        try:
+            resp = requests.post(
+                self.url,
+                json=event.to_dict(),
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+        except requests.exceptions.Timeout:
+            logger.warning(f"원격 로그 전송 타임아웃: {self.url}")
+        except Exception as e:
+            logger.error(f"원격 로그 전송 오류: {e}")
+
+
+class MultiSink(EventSink):
+    """여러 sink에 동일한 이벤트를 순서대로 기록한다.
+
+    각 sink의 실패는 독립적으로 처리되며, 하나가 실패해도 나머지 sink에 계속 쓴다.
+    """
+
+    def __init__(self, sinks: list[EventSink]):
+        self.sinks = sinks
+
+    def write(self, event: Event, screenshot: Any = None) -> None:
+        for sink in self.sinks:
+            sink.write(event, screenshot)
+
+
 class EventLogger:
     """
     이벤트 종류별 헬퍼를 제공하는 얇은 facade.
@@ -150,7 +193,12 @@ class EventLogger:
 
     def __init__(self, sink: EventSink | None = None):
         if sink is None:
-            sink = LocalJSONLSink(config.LOG_DIR / "events.jsonl")
+            local = LocalJSONLSink(config.LOG_DIR / "events.jsonl")
+            if config.CLOUD_API_URL:
+                remote = RemoteSink(config.CLOUD_API_URL, config.REMOTE_SINK_TIMEOUT)
+                sink = MultiSink([local, remote])
+            else:
+                sink = local
         self.sink = sink
         self._device_ip = self._get_ip()
         self._device_mac = self._get_mac()
