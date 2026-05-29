@@ -46,9 +46,6 @@ class Config(BaseSettings):
         extra="ignore",
     )
 
-    # ── HTTP 서버 ──────────────────────────────────────────────────────────────
-    WEB_AUTH_PORT: Annotated[int, Field(ge=1, le=65535)] = 8080         # 해제 인증 서버 포트
-
     # ── 해제 요청 ──────────────────────────────────────────────────────────────
     UNLOCK_CODE_TTL: Annotated[int, Field(gt=0)] = 120                  # 클라우드 승인 대기 타임아웃 (초)
 

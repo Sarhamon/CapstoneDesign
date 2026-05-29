@@ -58,7 +58,6 @@ from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
 from overlay import BlockOverlay
 from event_logger import EventLogger
-from web_auth import WebAuthServer
 
 config.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -101,8 +100,6 @@ class FocusGuard:
         self._last_detection_time: str = ""
 
         # 해제 인증 HTTP 서버 초기화; 인증 결과를 큐로 메인 스레드에 전달
-        self.web_auth = WebAuthServer(port=config.WEB_AUTH_PORT)
-
         # 오버레이 UI와 화면 모니터 초기화
         self.overlay = BlockOverlay(
             on_unlock_callback=self._on_unlock,
@@ -115,14 +112,6 @@ class FocusGuard:
 
         # LLM 호출을 직렬화하여 동시에 여러 요청이 실행되지 않도록 하는 락
         self._llm_lock = threading.Lock()
-
-        # 관리자 대시보드에 실시간 상태를 노출하는 콜백 등록
-        self.web_auth.set_status_provider(lambda: {
-            "monitoring": self.monitor.running,
-            "overlay_active": self.overlay.is_active,
-            "last_detection": self._last_detection_reason,
-            "last_detection_time": self._last_detection_time,
-        })
 
 
     def run(self):
@@ -143,9 +132,6 @@ class FocusGuard:
         # 로컬 LLM이면 첫 응답 지연을 줄이기 위해 모델을 미리 메모리에 적재
         if not config.USE_CLOUD_LLM and isinstance(self.llm, LocalLLMClient):
             self.llm.warmup()
-
-        # HTTP 서버·모니터를 백그라운드에서 시작하고 메인 스레드에서 Tkinter 루프 실행
-        self.web_auth.start()
 
         self.monitor.start()
 
