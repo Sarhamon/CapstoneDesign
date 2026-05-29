@@ -28,4 +28,4 @@ dist/
 admin/
 
 docs/*
-!docs/project-status.html
+!docs/index.html
