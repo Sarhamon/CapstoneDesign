@@ -22,10 +22,8 @@ const LISTS = {
   ck: ["구독","구독자","조회수","좋아요","알림 설정","자동재생","다음 동영상","댓글","갤러리","개념글","베스트글","짤","ㅋㅋ","ㄷㄷ","인게임","공략","티어","매칭 중","배틀패스","스킨","아이템","레이드","트로피","팔로우","후원","채팅 참여","라이브 중","장바구니","바로구매","무료배송","팔로워","팔로잉","스토리"],
 };
 
-let allEvents   = [];
-let filterType  = 'ALL';
-let codeTimer   = null;
-let codeHistory = [];
+let allEvents  = [];
+let filterType = 'ALL';
 
 /* ══════════════════════════════════════════
    [2] API URL 관리
@@ -147,7 +145,9 @@ function navigate(section, el) {
    [6-1] 해제 요청 알림
    ══════════════════════════════════════════ */
 
-let requestsData = [];
+let requestsData    = [];
+let approveHistory  = [];
+let reqApprovedToday = 0;
 
 async function loadUnlockRequests() {
   if (!API_URL) { toast('⚠️ API URL을 먼저 설정하세요'); return; }
@@ -157,7 +157,8 @@ async function loadUnlockRequests() {
     const data = await resp.json();
     requestsData = data.pending || [];
     renderRequests();
-    document.getElementById('badge-requests').textContent = requestsData.length || '0';
+    document.getElementById('badge-requests').textContent    = requestsData.length || '0';
+    document.getElementById('req-pending-count').textContent = requestsData.length;
   } catch (e) {
     toast(`❌ 요청 목록 로드 실패: ${e.message}`);
   }
@@ -178,11 +179,48 @@ function renderRequests() {
       <td style="color:var(--ink3);white-space:nowrap">${ts}</td>
       <td style="color:var(--ink)">${esc(r.reason || '—')}</td>
       <td>
-        <button class="btn btn-lilac" style="padding:5px 14px;font-size:12px"
-                onclick="issueCode('${esc(r.device_id)}')">🔑 코드 발급</button>
+        <button class="btn btn-mint" style="padding:5px 14px;font-size:12px"
+                onclick="approveRequest('${esc(r.device_id)}', '${esc(r.reason || '')}')">✅ 승인</button>
       </td>
     </tr>`;
   }).join('');
+}
+
+async function approveRequest(device_id, reason) {
+  if (!API_URL) { toast('⚠️ API URL을 먼저 설정하세요'); return; }
+  try {
+    const resp = await fetch(`${API_URL}/unlock/${device_id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve', device_id }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    requestsData = requestsData.filter(r => r.device_id !== device_id);
+    reqApprovedToday++;
+    approveHistory.unshift({ time: new Date().toLocaleString('ko-KR'), device_id, reason });
+    renderRequests();
+    renderApproveHistory();
+    document.getElementById('badge-requests').textContent     = requestsData.length || '0';
+    document.getElementById('req-pending-count').textContent  = requestsData.length;
+    document.getElementById('req-approved-count').textContent = reqApprovedToday;
+    toast(`✅ ${device_id} 승인 완료`);
+  } catch (e) {
+    toast(`❌ 승인 실패: ${e.message}`);
+  }
+}
+
+function renderApproveHistory() {
+  const tbody = document.getElementById('approve-history');
+  if (!approveHistory.length) {
+    tbody.innerHTML = '<tr><td colspan="3"><div class="empty" style="padding:18px"><div class="empty-ico">📜</div>승인 이력 없음</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = approveHistory.slice(0, 20).map(h => `
+    <tr>
+      <td style="color:var(--ink3)">${h.time}</td>
+      <td><span style="font-family:var(--fm);color:var(--sky-d)">${esc(h.device_id)}</span></td>
+      <td style="color:var(--ink)">${esc(h.reason || '—')}</td>
+    </tr>`).join('');
 }
 
 /* ══════════════════════════════════════════
@@ -412,82 +450,8 @@ function switchListTab(name, el) {
 }
 
 /* ══════════════════════════════════════════
-   [14] 해제 코드 발급
+   [14] (예약)
    ══════════════════════════════════════════ */
-
-function issueCode(device_id = '') {
-  const len      = parseInt(document.getElementById('code-len').value);
-  const ttl      = parseInt(document.getElementById('code-ttl').value);
-  const code     = Array.from({ length: len }, () => Math.floor(Math.random() * 10)).join('');
-  const expireAt = Date.now() + ttl * 1000;
-  const h        = { time: new Date().toLocaleString('ko-KR'), device_id, code, ttl, status: 'active' };
-  codeHistory.unshift(h);
-  renderCodeHistory();
-  renderCodePanel(code, expireAt, h, device_id);
-  // 발급한 요청은 목록에서 제거
-  if (device_id) {
-    requestsData = requestsData.filter(r => r.device_id !== device_id);
-    renderRequests();
-    document.getElementById('badge-requests').textContent = requestsData.length || '0';
-  }
-  toast(`🔑 코드 발급${device_id ? ` → ${device_id}` : ''}`);
-}
-
-function renderCodePanel(code, expireAt, hist, device_id = '') {
-  const panel = document.getElementById('code-panel');
-  panel.innerHTML = `
-    ${device_id ? `<div style="font-family:var(--fm);font-size:11px;color:var(--sky-d);margin-bottom:-6px">→ ${esc(device_id)}</div>` : ''}
-    <div class="code-display" id="code-disp">${code}</div>
-    <div class="code-ttl">⏱ 남은 시간: <span class="code-ttl-v" id="ttl-v">--:--</span></div>
-    <div class="qr-box" id="qr-box"></div>
-    <div class="code-hint">
-      학생 PC의 해제 화면에서 코드를 입력하거나<br>
-      <strong>http://[학생 PC IP]:8080/</strong><br>에 접속하여 코드를 입력합니다.
-    </div>
-    <button class="btn btn-ghost" onclick="issueCode()" style="width:100%;justify-content:center">
-      🔄 직접 발급
-    </button>`;
-  try {
-    new QRCode(document.getElementById('qr-box'), {
-      text: 'http://[PC-IP]:8080/',
-      width: 150, height: 150,
-      colorDark: '#2a2240', colorLight: '#ffffff',
-    });
-  } catch {}
-
-  if (codeTimer) clearInterval(codeTimer);
-  codeTimer = setInterval(() => {
-    const rem = Math.max(0, Math.ceil((expireAt - Date.now()) / 1000));
-    const el  = document.getElementById('ttl-v');
-    if (el) el.textContent = `${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`;
-    if (rem <= 0) {
-      clearInterval(codeTimer);
-      hist.status = 'expired';
-      renderCodeHistory();
-      const d = document.getElementById('code-disp');
-      if (d) { d.style.color = 'var(--ink3)'; d.style.borderColor = 'var(--line2)'; d.style.background = 'var(--bg)'; }
-      toast('⏰ 코드가 만료되었습니다');
-    }
-  }, 500);
-}
-
-function renderCodeHistory() {
-  const tbody = document.getElementById('code-history');
-  if (!codeHistory.length) {
-    tbody.innerHTML = '<tr><td colspan="5"><div class="empty" style="padding:18px"><div class="empty-ico">📜</div>발급 이력 없음</div></td></tr>';
-    return;
-  }
-  tbody.innerHTML = codeHistory.slice(0, 20).map(h => `
-    <tr>
-      <td style="color:var(--ink3)">${h.time}</td>
-      <td><span style="font-family:var(--fm);font-size:11px;color:var(--sky-d)">${h.device_id || '—'}</span></td>
-      <td><span style="font-family:var(--fm);letter-spacing:5px;color:var(--lilac-d);font-size:14px">${h.code}</span></td>
-      <td style="color:var(--ink3)">${h.ttl}초</td>
-      <td>${h.status === 'active'
-        ? '<span class="badge badge-allow">유효</span>'
-        : '<span class="badge" style="background:var(--bg);color:var(--ink3);border-color:var(--line2)">만료</span>'}</td>
-    </tr>`).join('');
-}
 
 /* ══════════════════════════════════════════
    [15] 유틸

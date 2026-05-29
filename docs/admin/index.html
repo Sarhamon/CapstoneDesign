@@ -337,88 +337,63 @@
         <div class="ph-icon" style="background:var(--sky-bg)">🔔</div>
         <div>
           <div class="ph-title">해제 요청 알림</div>
-          <div class="ph-sub">학생의 해제 요청을 확인하고 코드를 발급합니다</div>
+          <div class="ph-sub">학생의 차단 해제 요청을 승인합니다</div>
         </div>
       </div>
       <div class="ph-right">
-        <button class="btn btn-ghost" onclick="loadUnlockRequests()">🔄 요청 새로고침</button>
+        <button class="btn btn-ghost" onclick="loadUnlockRequests()">🔄 새로고침</button>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-
-      <!-- 좌측: 대기 요청 목록 + 설정 -->
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="panel">
-          <div class="panel-head"><div class="panel-title">📋 대기 중인 해제 요청</div></div>
-          <div style="overflow-x:auto">
-            <table class="log-tbl">
-              <thead>
-                <tr><th>기기 ID</th><th>요청 시각</th><th>사유</th><th>코드 발급</th></tr>
-              </thead>
-              <tbody id="requests-tbody">
-                <tr><td colspan="4">
-                  <div class="empty">
-                    <div class="empty-ico">🔔</div>
-                    API URL을 설정하고<br>새로고침하세요
-                  </div>
-                </td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><div class="panel-title">⚙️ 발급 설정</div></div>
-          <div class="panel-body" style="display:flex;gap:14px;align-items:flex-end">
-            <div style="flex:1">
-              <label class="fg-lbl">코드 자릿수</label>
-              <select id="code-len" class="fg-sel">
-                <option value="4">4자리</option>
-                <option value="6" selected>6자리</option>
-                <option value="8">8자리</option>
-              </select>
-            </div>
-            <div style="flex:1">
-              <label class="fg-lbl">유효 시간</label>
-              <select id="code-ttl" class="fg-sel">
-                <option value="60">1분</option>
-                <option value="120" selected>2분</option>
-                <option value="300">5분</option>
-                <option value="600">10분</option>
-              </select>
-            </div>
-            <button class="btn btn-ghost" style="flex-shrink:0" onclick="issueCode()">
-              🔑 직접 발급
-            </button>
-          </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(2,1fr);max-width:480px">
+      <div class="kpi-card sky" data-emoji="🔔">
+        <div class="kpi-ico">🔔</div>
+        <div>
+          <div class="kpi-label">대기 중</div>
+          <div class="kpi-val" id="req-pending-count">0</div>
+          <div class="kpi-sub">승인 대기 요청</div>
         </div>
       </div>
-
-      <!-- 우측: 발급된 코드 표시 -->
-      <div class="panel">
-        <div class="panel-head"><div class="panel-title">✨ 발급된 코드</div></div>
-        <div id="code-panel" style="display:flex;flex-direction:column;align-items:center;gap:18px;padding:26px">
-          <div class="empty" style="padding:12px">
-            <div class="empty-ico">🔑</div>
-            요청 목록에서 코드를 발급하거나<br>직접 발급하세요
-          </div>
+      <div class="kpi-card mint" data-emoji="✅">
+        <div class="kpi-ico">✅</div>
+        <div>
+          <div class="kpi-label">오늘 승인</div>
+          <div class="kpi-val" id="req-approved-count">0</div>
+          <div class="kpi-sub">처리 완료</div>
         </div>
       </div>
     </div>
 
-    <!-- 발급 이력 -->
     <div class="panel">
-      <div class="panel-head"><div class="panel-title">📜 발급 이력</div></div>
+      <div class="panel-head"><div class="panel-title">📋 대기 중인 해제 요청</div></div>
       <div style="overflow-x:auto">
         <table class="log-tbl">
           <thead>
-            <tr><th>발급 시각</th><th>대상 기기</th><th>코드</th><th>유효 시간</th><th>상태</th></tr>
+            <tr><th>기기 ID</th><th>요청 시각</th><th>사유</th><th>승인</th></tr>
           </thead>
-          <tbody id="code-history">
-            <tr><td colspan="5">
+          <tbody id="requests-tbody">
+            <tr><td colspan="4">
+              <div class="empty">
+                <div class="empty-ico">🔔</div>
+                API URL을 설정하고 새로고침하세요
+              </div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">📜 승인 이력</div></div>
+      <div style="overflow-x:auto">
+        <table class="log-tbl">
+          <thead>
+            <tr><th>승인 시각</th><th>기기 ID</th><th>사유</th></tr>
+          </thead>
+          <tbody id="approve-history">
+            <tr><td colspan="3">
               <div class="empty" style="padding:18px">
-                <div class="empty-ico">📜</div>발급 이력 없음
+                <div class="empty-ico">📜</div>승인 이력 없음
               </div>
             </td></tr>
           </tbody>
@@ -433,7 +408,6 @@
 <input type="file" id="file-input" accept=".jsonl,.json,.log"
        style="display:none" onchange="onFileSelected(event)">
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
