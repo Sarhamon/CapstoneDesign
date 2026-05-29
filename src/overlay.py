@@ -11,8 +11,12 @@ import logging
 import ctypes
 import ctypes.wintypes
 import secrets
+import threading
 import time
+import uuid
 from datetime import datetime
+
+import requests
 
 import qrcode
 from qrcode.constants import ERROR_CORRECT_M
@@ -400,29 +404,108 @@ class BlockOverlay:
             command=self._request_unlock,
         ).pack()
 
+    @staticmethod
+    def _get_device_id() -> str:
+        try:
+            mac_bytes = uuid.getnode().to_bytes(6, byteorder="big")
+            return ":".join(f"{b:02x}" for b in mac_bytes)
+        except Exception:
+            return "unknown"
+
     def _request_unlock(self):
         """
         "해제 요청" 버튼 클릭 시 호출된다.
 
-        config.UNLOCK_CODE_LENGTH 자릿수의 랜덤 숫자 코드를 생성하고
-        WebAuthServer에 등록한 뒤, QR(LAN URL) + 코드 + 카운트다운 패널로 전환한다.
+        CLOUD_API_URL이 설정된 경우 클라우드 해제 요청을 전송하고 승인 폴링을 시작한다.
+        미설정 시 로컬 코드 + QR 방식(Phase 1)으로 폴백한다.
         """
+        if config.CLOUD_API_URL:
+            device_id = self._get_device_id()
+            self._unlock_expires_at = time.time() + config.UNLOCK_CODE_TTL
+            threading.Thread(
+                target=self._send_cloud_unlock_request,
+                args=(device_id,),
+                daemon=True,
+            ).start()
+            threading.Thread(
+                target=self._poll_cloud_approval,
+                args=(device_id, self._unlock_expires_at),
+                daemon=True,
+            ).start()
+            self._show_waiting_panel()
+        else:
+            self._request_unlock_local()
+
+    def _request_unlock_local(self):
+        """CLOUD_API_URL 미설정 시 로컬 코드 + QR 방식으로 해제 요청을 처리한다."""
         if self._web_auth is None:
             logger.error("WebAuthServer 미설정 — 해제 요청을 처리할 수 없습니다.")
             return
-
-
         lower = 10 ** (config.UNLOCK_CODE_LENGTH - 1)
         span  = 10 ** config.UNLOCK_CODE_LENGTH - lower
         code  = str(secrets.randbelow(span) + lower)
-
         ttl = config.UNLOCK_CODE_TTL
         self._web_auth.set_code(code, ttl)
         self._unlock_expires_at = time.time() + ttl
-
         url = f"http://{get_lan_ip()}:{config.WEB_AUTH_PORT}/"
         logger.info(f"[해제 요청] 코드 발급 (TTL {ttl}s) | URL: {url}")
         self._show_qr_panel(url, code)
+
+    def _send_cloud_unlock_request(self, device_id: str) -> None:
+        try:
+            url = config.CLOUD_API_URL.rstrip("/") + f"/unlock/{device_id}"
+            resp = requests.post(
+                url,
+                json={"action": "request", "device_id": device_id, "reason": self._reason},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            logger.info(f"[클라우드 해제 요청] 전송 완료 | device_id={device_id}")
+        except Exception as e:
+            logger.error(f"[클라우드 해제 요청] 전송 실패: {e}")
+
+    def _poll_cloud_approval(self, device_id: str, expires_at: float) -> None:
+        url = config.CLOUD_API_URL.rstrip("/") + f"/unlock/{device_id}"
+        while time.time() < expires_at:
+            time.sleep(3)
+            if not self._active:
+                return
+            try:
+                resp = requests.get(url, timeout=5)
+                if resp.ok and resp.json().get("status") == "approved":
+                    logger.info("[클라우드 승인] 관리자가 해제 승인함")
+                    if self._ui_queue:
+                        self._ui_queue.put(("web-unlock",))
+                    return
+            except Exception as e:
+                logger.warning(f"[클라우드 폴링] 오류: {e}")
+        logger.info("[클라우드 폴링] TTL 만료 → 폴링 종료")
+
+    def _show_waiting_panel(self):
+        """클라우드 해제 요청 전송 후 교수자 승인 대기 상태 UI를 그린다."""
+        self._clear_action_frame()
+        if not self._action_frame:
+            return
+        tk.Label(
+            self._action_frame,
+            text="해제 요청을 전송했습니다.",
+            font=("맑은 고딕", 14, "bold"),
+            fg="#4ade80", bg="#1a1a2e",
+        ).pack(pady=(0, 8))
+        tk.Label(
+            self._action_frame,
+            text="교수자가 승인하면 자동으로 해제됩니다.",
+            font=("맑은 고딕", 12),
+            fg="#c0c0c0", bg="#1a1a2e",
+        ).pack(pady=(0, 16))
+        self._countdown_label = tk.Label(
+            self._action_frame,
+            text="",
+            font=("맑은 고딕", 11),
+            fg="#a8a8b3", bg="#1a1a2e",
+        )
+        self._countdown_label.pack()
+        self._update_countdown()
 
     def _show_qr_panel(self, url: str, code: str):
         """QR 코드, 해제 코드, 남은 시간 카운트다운을 액션 영역에 그린다."""

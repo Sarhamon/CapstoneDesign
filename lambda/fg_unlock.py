@@ -6,6 +6,7 @@ from botocore.exceptions import ClientError
 
 s3 = boto3.client("s3")
 BUCKET = os.environ["DATA_BUCKET"]
+INDEX_KEY = "unlock/_pending.json"
 
 HEADERS = {
     "Access-Control-Allow-Origin": "*",
@@ -37,6 +38,25 @@ def _put(device_id: str, data: dict) -> None:
     )
 
 
+def _read_index() -> list[dict]:
+    try:
+        obj = s3.get_object(Bucket=BUCKET, Key=INDEX_KEY)
+        return json.loads(obj["Body"].read())
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("NoSuchKey", "AccessDenied"):
+            return []
+        raise
+
+
+def _write_index(entries: list[dict]) -> None:
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=INDEX_KEY,
+        Body=json.dumps(entries, ensure_ascii=False).encode("utf-8"),
+        ContentType="application/json",
+    )
+
+
 def _http_method(event: dict) -> str:
     return (event.get("httpMethod")
             or event.get("requestContext", {}).get("http", {}).get("method", "GET"))
@@ -61,22 +81,17 @@ def lambda_handler(event, context):
             data = _get(device_id)
             if data and data.get("status") == "approved":
                 _put(device_id, {**data, "status": "consumed"})
+                index = [e for e in _read_index() if e.get("device_id") != device_id]
+                _write_index(index)
                 return {"statusCode": 200, "headers": HEADERS,
                         "body": json.dumps({"status": "approved"})}
             status = data.get("status", "none") if data else "none"
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"status": status})}
 
-        # GET /unlock — Admin: pending 목록 전체 조회
+        # GET /unlock — Admin: pending 목록 조회 (인덱스 파일 사용, ListBucket 불필요)
         if method == "GET":
-            paginator = s3.get_paginator("list_objects_v2")
-            pending = []
-            for page in paginator.paginate(Bucket=BUCKET, Prefix="unlock/"):
-                for obj in page.get("Contents", []):
-                    device_id = obj["Key"].removeprefix("unlock/").removesuffix(".json")
-                    data = _get(device_id)
-                    if data and data.get("status") == "pending":
-                        pending.append(data)
+            pending = _read_index()
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"pending": pending}, ensure_ascii=False)}
 
@@ -86,13 +101,17 @@ def lambda_handler(event, context):
 
         # POST action=request — 학생 PC: 해제 요청 생성
         if action == "request":
-            _put(device_id, {
+            entry = {
                 "device_id": device_id,
                 "status": "pending",
                 "reason": body.get("reason", ""),
                 "requested_at": datetime.now(timezone.utc).isoformat(),
                 "approved_at": None,
-            })
+            }
+            _put(device_id, entry)
+            index = [e for e in _read_index() if e.get("device_id") != device_id]
+            index.append(entry)
+            _write_index(index)
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"success": True})}
 
@@ -102,6 +121,8 @@ def lambda_handler(event, context):
             data.update({"status": "approved",
                           "approved_at": datetime.now(timezone.utc).isoformat()})
             _put(device_id, data)
+            index = [e for e in _read_index() if e.get("device_id") != device_id]
+            _write_index(index)
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"success": True})}
 
