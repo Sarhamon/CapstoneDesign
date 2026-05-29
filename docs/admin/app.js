@@ -170,7 +170,7 @@ function renderRequests() {
     tbody.innerHTML = '<tr><td colspan="4"><div class="empty"><div class="empty-ico">✅</div>대기 중인 요청 없음</div></td></tr>';
     return;
   }
-  tbody.innerHTML = requestsData.map(r => {
+  tbody.innerHTML = requestsData.map((r, idx) => {
     const ts = new Date(r.requested_at).toLocaleString('ko-KR', {
       month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
     });
@@ -179,15 +179,19 @@ function renderRequests() {
       <td style="color:var(--ink3);white-space:nowrap">${ts}</td>
       <td style="color:var(--ink)">${esc(r.reason || '—')}</td>
       <td>
-        <button class="btn btn-mint" style="padding:5px 14px;font-size:12px"
-                onclick="approveRequest('${esc(r.device_id)}', '${esc(r.reason || '')}')">✅ 승인</button>
+        <button class="btn btn-mint" style="padding:5px 14px;font-size:12px;user-select:none;-webkit-user-select:none"
+                onclick="approveRequest(${idx})">✅ 승인</button>
       </td>
     </tr>`;
   }).join('');
 }
 
-async function approveRequest(device_id, reason) {
+async function approveRequest(idx) {
   if (!API_URL) { toast('⚠️ API URL을 먼저 설정하세요'); return; }
+  const r = requestsData[idx];
+  if (!r) return;
+  const device_id = r.device_id;
+  const reason = r.reason || '';
   try {
     const resp = await fetch(`${API_URL}/unlock/${device_id}`, {
       method: 'POST',

@@ -46,14 +46,16 @@ class ScreenMonitor:
     블랙리스트 검사를 건너뛰고 허용한다.
     """
 
-    def __init__(self, on_detect_callback):
+    def __init__(self, on_detect_callback, is_blocked=None):
         """
         Args:
             on_detect_callback: 탐지 시 호출할 콜백 함수.
                 signature: (stage: str, reason: str, screenshot: np.ndarray,
                             target_hwnd: int | None, target_pid: int | None) -> None
+            is_blocked: 오버레이 활성 여부를 반환하는 callable. 차단 중이면 검사를 건너뛴다.
         """
         self.callback = on_detect_callback
+        self._is_blocked = is_blocked
 
 
         logger.info("OCR 모델 초기화 중...")
@@ -105,6 +107,9 @@ class ScreenMonitor:
 
         while self.running:
             try:
+                if self._is_blocked and self._is_blocked():
+                    time.sleep(config.FAST_POLL_INTERVAL)
+                    continue
 
                 hwnd, pid = self._get_current_focus_info()
                 proc_name = self._get_process_name(pid)

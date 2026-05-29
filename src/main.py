@@ -114,7 +114,10 @@ class FocusGuard:
             ui_queue=self._ui_queue,
             web_auth_server=self.web_auth,
         )
-        self.monitor = ScreenMonitor(on_detect_callback=self._on_detect)
+        self.monitor = ScreenMonitor(
+            on_detect_callback=self._on_detect,
+            is_blocked=lambda: self.overlay.is_active,
+        )
 
         # LLM 호출을 직렬화하여 동시에 여러 요청이 실행되지 않도록 하는 락
         self._llm_lock = threading.Lock()
