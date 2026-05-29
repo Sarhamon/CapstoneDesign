@@ -2,59 +2,16 @@ import json
 import boto3
 import os
 from datetime import datetime, timezone
-from botocore.exceptions import ClientError
+from boto3.dynamodb.conditions import Attr
 
-s3 = boto3.client("s3")
-BUCKET = os.environ["DATA_BUCKET"]
-INDEX_KEY = "unlock/_pending.json"
+dynamodb = boto3.resource("dynamodb")
+table = dynamodb.Table(os.environ.get("UNLOCK_TABLE", "fg-unlock-requests"))
 
 HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
     "Content-Type": "application/json",
 }
-
-
-def _key(device_id: str) -> str:
-    return f"unlock/{device_id}.json"
-
-
-def _get(device_id: str) -> dict | None:
-    try:
-        obj = s3.get_object(Bucket=BUCKET, Key=_key(device_id))
-        return json.loads(obj["Body"].read())
-    except ClientError as e:
-        if e.response["Error"]["Code"] in ("NoSuchKey", "AccessDenied"):
-            return None
-        raise
-
-
-def _put(device_id: str, data: dict) -> None:
-    s3.put_object(
-        Bucket=BUCKET,
-        Key=_key(device_id),
-        Body=json.dumps(data, ensure_ascii=False).encode("utf-8"),
-        ContentType="application/json",
-    )
-
-
-def _read_index() -> list[dict]:
-    try:
-        obj = s3.get_object(Bucket=BUCKET, Key=INDEX_KEY)
-        return json.loads(obj["Body"].read())
-    except ClientError as e:
-        if e.response["Error"]["Code"] in ("NoSuchKey", "AccessDenied"):
-            return []
-        raise
-
-
-def _write_index(entries: list[dict]) -> None:
-    s3.put_object(
-        Bucket=BUCKET,
-        Key=INDEX_KEY,
-        Body=json.dumps(entries, ensure_ascii=False).encode("utf-8"),
-        ContentType="application/json",
-    )
 
 
 def _http_method(event: dict) -> str:
@@ -74,24 +31,30 @@ def lambda_handler(event, context):
     path   = _path(event)
 
     try:
-        # GET /unlock/{device_id} — 학생 PC 폴링: 승인 여부 확인
         path_device_id = path.rstrip("/").split("/")[-1]
+
+        # GET /unlock/{device_id} — 학생 PC 폴링: 승인 여부 확인
         if method == "GET" and path_device_id not in ("unlock", ""):
             device_id = path_device_id
-            data = _get(device_id)
-            if data and data.get("status") == "approved":
-                _put(device_id, {**data, "status": "consumed"})
-                index = [e for e in _read_index() if e.get("device_id") != device_id]
-                _write_index(index)
+            resp = table.get_item(Key={"device_id": device_id})
+            item = resp.get("Item")
+            if item and item.get("status") == "approved":
+                table.update_item(
+                    Key={"device_id": device_id},
+                    UpdateExpression="SET #s = :s",
+                    ExpressionAttributeNames={"#s": "status"},
+                    ExpressionAttributeValues={":s": "consumed"},
+                )
                 return {"statusCode": 200, "headers": HEADERS,
                         "body": json.dumps({"status": "approved"})}
-            status = data.get("status", "none") if data else "none"
+            status = item.get("status", "none") if item else "none"
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"status": status})}
 
-        # GET /unlock — Admin: pending 목록 조회 (인덱스 파일 사용, ListBucket 불필요)
+        # GET /unlock — Admin: pending 목록 조회
         if method == "GET":
-            pending = _read_index()
+            resp = table.scan(FilterExpression=Attr("status").eq("pending"))
+            pending = resp.get("Items", [])
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"pending": pending}, ensure_ascii=False)}
 
@@ -101,28 +64,27 @@ def lambda_handler(event, context):
 
         # POST action=request — 학생 PC: 해제 요청 생성
         if action == "request":
-            entry = {
+            table.put_item(Item={
                 "device_id": device_id,
                 "status": "pending",
                 "reason": body.get("reason", ""),
                 "requested_at": datetime.now(timezone.utc).isoformat(),
                 "approved_at": None,
-            }
-            _put(device_id, entry)
-            index = [e for e in _read_index() if e.get("device_id") != device_id]
-            index.append(entry)
-            _write_index(index)
+            })
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"success": True})}
 
         # POST action=approve — Admin: 해제 승인
         if action == "approve":
-            data = _get(device_id) or {}
-            data.update({"status": "approved",
-                          "approved_at": datetime.now(timezone.utc).isoformat()})
-            _put(device_id, data)
-            index = [e for e in _read_index() if e.get("device_id") != device_id]
-            _write_index(index)
+            table.update_item(
+                Key={"device_id": device_id},
+                UpdateExpression="SET #s = :s, approved_at = :t",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":s": "approved",
+                    ":t": datetime.now(timezone.utc).isoformat(),
+                },
+            )
             return {"statusCode": 200, "headers": HEADERS,
                     "body": json.dumps({"success": True})}
 
