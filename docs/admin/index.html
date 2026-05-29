@@ -81,7 +81,6 @@
       <div class="ph-right">
         <input class="searchbox" id="log-search" placeholder="🔍 검색..." oninput="filterLogs()">
         <button class="btn btn-lilac" onclick="loadEventsFromAPI()">☁️ API 불러오기</button>
-        <button class="btn btn-ghost" onclick="loadLogFile()">📂 파일 불러오기</button>
         <button class="btn btn-rose" onclick="clearLogs()">🗑 초기화</button>
       </div>
     </div>
@@ -140,8 +139,7 @@
             <tr><td colspan="5">
               <div class="empty">
                 <div class="empty-ico">📂</div>
-                API에서 불러오거나 로그 파일을 선택하세요<br>
-                <span style="font-size:11px">(.jsonl · .json · .log)</span>
+                API에서 불러오세요
               </div>
             </td></tr>
           </tbody>
@@ -405,8 +403,6 @@
 </main>
 
 <div id="toast"></div>
-<input type="file" id="file-input" accept=".jsonl,.json,.log"
-       style="display:none" onchange="onFileSelected(event)">
 
 <script src="app.js"></script>
 </body>

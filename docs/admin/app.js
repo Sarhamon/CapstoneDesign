@@ -249,31 +249,6 @@ function toast(msg, dur = 2300) {
   setTimeout(() => t.classList.remove('show'), dur);
 }
 
-/* ══════════════════════════════════════════
-   [9] 로그 파일 로드 (파일 폴백)
-   ══════════════════════════════════════════ */
-
-function loadLogFile() {
-  document.getElementById('file-input').click();
-}
-
-function onFileSelected(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const lines = ev.target.result.split('\n').filter(l => l.trim());
-    allEvents = [];
-    for (const line of lines) {
-      try { allEvents.push(JSON.parse(line)); } catch {}
-    }
-    allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    updateKPI(); renderLogs(); renderStats();
-    toast(`✅ ${allEvents.length}개 이벤트 로드 완료`);
-  };
-  reader.readAsText(file, 'utf-8');
-  e.target.value = '';
-}
 
 /* ══════════════════════════════════════════
    [10] KPI 카드 업데이트

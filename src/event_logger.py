@@ -142,7 +142,7 @@ class RemoteSink(EventSink):
     """
 
     def __init__(self, base_url: str, timeout: int = 5):
-        self.url = base_url.rstrip("/") + "/event/log"
+        self.url = base_url.rstrip("/") + "/events/log"
         self.timeout = timeout
 
     def write(self, event: Event, screenshot: Any = None) -> None:
