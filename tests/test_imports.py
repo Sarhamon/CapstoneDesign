@@ -22,7 +22,6 @@ MODULES = [
     "config",
     "event_logger",
     "llm_client",
-    "web_auth",
     "monitor",
     "overlay",
     "main",
