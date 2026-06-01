@@ -27,6 +27,7 @@ install/.env
 # 빌드 결과물
 dist/
 admin/
+build/
 
 docs/*
 !docs/index.html

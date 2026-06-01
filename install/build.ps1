@@ -6,6 +6,9 @@
 #   pip install pyinstaller
 #   Inno Setup 6 설치 (https://jrsoftware.org/isdl.php)
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $ROOT = Split-Path $PSScriptRoot -Parent
 $ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 

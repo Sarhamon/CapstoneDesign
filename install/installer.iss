@@ -1,3 +1,4 @@
+#pragma codepage 65001
 ; installer.iss
 ; Inno Setup 설치 마법사 스크립트
 ; 전제: build.ps1 실행 후 dist\FocusGuard\ 디렉터리가 생성되어 있어야 함
@@ -28,7 +29,7 @@ CloseApplications=yes
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Windows 시작 시 FocusGuard 자동 실행"; GroupDescription: "추가 옵션:"; Flags: checked
+Name: "autostart"; Description: "Windows 시작 시 FocusGuard 자동 실행"; GroupDescription: "추가 옵션:"
 
 [Files]
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -39,7 +40,7 @@ Name: "{group}\{#AppName} 제거"; Filename: "{uninstallexe}"
 
 [Registry]
 ; 시작 시 자동 실행 등록 (Tasks: autostart 선택 시)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   ValueType: string; ValueName: "{#AppName}"; \
   ValueData: """{app}\{#AppExeName}"""; \
   Flags: uninsdeletevalue; Tasks: autostart
@@ -48,4 +49,4 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 Filename: "{app}\{#AppExeName}"; Description: "FocusGuard 시작"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "taskkill"; Parameters: "/F /IM {#AppExeName}"; Flags: runhidden
+Filename: "taskkill"; Parameters: "/F /IM {#AppExeName}"; Flags: runhidden; RunOnceId: "KillFocusGuard"
