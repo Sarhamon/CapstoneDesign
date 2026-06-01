@@ -152,7 +152,7 @@ let reqApprovedToday = 0;
 async function loadUnlockRequests() {
   if (!API_URL) { toast('⚠️ API URL을 먼저 설정하세요'); return; }
   try {
-    const resp = await fetch(API_URL + '/unlock');
+    const resp = await fetch(API_URL + '/unlock', { cache: 'no-store' });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     requestsData = data.pending || [];
@@ -459,8 +459,11 @@ if (hLabels) {
 if (API_URL) {
   document.getElementById('api-url-inp').value = API_URL;
   loadListsFromAPI();
+  loadUnlockRequests();
 } else {
   renderAllLists();
 }
 updateApiStatus(API_URL ? null : null);
 updateKPI();
+
+setInterval(() => { if (API_URL) loadUnlockRequests(); }, 15000);
