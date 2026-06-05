@@ -107,3 +107,42 @@ def reload_lists() -> None:
     Config.URL_BLACKLIST     = [u.lower() for u in _blacklists.get("url", [])]
     Config.CONTENT_KEYWORDS  = [k.lower() for k in _blacklists.get("content_keywords", [])]
     Config.URL_WHITELIST     = [u.lower() for u in _whitelists.get("url", [])]
+
+
+def sync_lists_from_cloud() -> bool:
+    """시작 시 API GET /list 에서 최신 목록을 내려받아 Config ClassVar를 갱신한다.
+
+    CLOUD_API_URL이 비어 있거나 네트워크 오류 시 로컬 YAML을 그대로 사용한다.
+    각 카테고리는 API 응답에 해당 키가 있을 때만 덮어쓴다 — 빈 응답이 로컬 목록을 지우지 않는다.
+
+    Returns:
+        동기화 성공 시 True, 스킵/실패 시 False.
+    """
+    if not config.CLOUD_API_URL:
+        return False
+    import logging as _logging
+    _log = _logging.getLogger("config")
+    try:
+        import requests
+        resp = requests.get(config.CLOUD_API_URL.rstrip("/") + "/list", timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        bl = data.get("blacklists", {})
+        wl = data.get("whitelists", {})
+        if bl.get("process"):
+            Config.PROCESS_BLACKLIST = {p.lower() for p in bl["process"]}
+        if wl.get("process"):
+            Config.PROCESS_WHITELIST = {p.lower() for p in wl["process"]}
+        if bl.get("title"):
+            Config.TITLE_BLACKLIST   = [t.lower() for t in bl["title"]]
+        if bl.get("url"):
+            Config.URL_BLACKLIST     = [u.lower() for u in bl["url"]]
+        if wl.get("url"):
+            Config.URL_WHITELIST     = [u.lower() for u in wl["url"]]
+        if bl.get("content_keywords"):
+            Config.CONTENT_KEYWORDS  = [k.lower() for k in bl["content_keywords"]]
+        _log.info("클라우드 목록 동기화 완료")
+        return True
+    except Exception as e:
+        _log.warning(f"클라우드 목록 동기화 실패 (로컬 YAML 사용): {e}")
+        return False

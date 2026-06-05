@@ -111,22 +111,33 @@ class EventSink(ABC):
         ...
 
 
+_MAX_JSONL_BYTES = 10 * 1024 * 1024  # 10 MB 초과 시 로테이션
+_JSONL_BACKUPS   = 2                  # events.jsonl.1, events.jsonl.2 보관
+
+
 class LocalJSONLSink(EventSink):
     """이벤트를 JSONL 파일에 한 줄씩 누적 저장한다.
 
-    screenshot은 보존 비용(디스크 + 프라이버시)이 커서 무시한다. Phase 2에서
-    RemoteSink/S3Sink가 추가되면 그쪽에서 binary 보존을 담당한다.
-
-    쓰기 오류는 로깅만 하고 예외를 전파하지 않는다 — 로거 오류가 메인 모니터링
-    루프를 중단시키면 안 되기 때문이다.
+    파일 크기가 _MAX_JSONL_BYTES를 초과하면 .1 / .2 로 순환 저장한다.
+    screenshot은 보존 비용(디스크 + 프라이버시)이 커서 무시한다.
+    쓰기 오류는 로깅만 하고 예외를 전파하지 않는다.
     """
 
     def __init__(self, path: Path):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _rotate(self) -> None:
+        for i in range(_JSONL_BACKUPS, 0, -1):
+            dst = Path(f"{self.path}.{i}")
+            src = Path(f"{self.path}.{i - 1}") if i > 1 else self.path
+            if src.exists():
+                src.rename(dst)
+
     def write(self, event: Event, screenshot: Any = None) -> None:
         try:
+            if self.path.exists() and self.path.stat().st_size >= _MAX_JSONL_BYTES:
+                self._rotate()
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
         except Exception as e:

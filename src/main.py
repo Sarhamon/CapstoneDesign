@@ -13,6 +13,7 @@ import threading
 import time
 import queue
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 import numpy as np
 import psutil
 
@@ -79,7 +80,7 @@ def _protect_process() -> None:
         logging.getLogger("main").warning(f"프로세스 보호 설정 실패: {e}")
 
 
-from config import config
+from config import config, sync_lists_from_cloud
 from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
 from overlay import BlockOverlay
@@ -87,7 +88,14 @@ from event_logger import EventLogger
 
 config.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-_log_handlers = [logging.FileHandler(config.LOG_DIR / "focus_guard.log", encoding="utf-8")]
+_log_handlers = [
+    RotatingFileHandler(
+        config.LOG_DIR / "focus_guard.log",
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=3,
+        encoding="utf-8",
+    )
+]
 if sys.stdout is not None:
     _log_handlers.insert(0, logging.StreamHandler(sys.stdout))
 logging.basicConfig(
@@ -155,6 +163,8 @@ class FocusGuard:
         logger.info(f"모델: {config.OLLAMA_MODEL}")
         logger.info("=" * 50)
 
+
+        sync_lists_from_cloud()
 
         # 로컬 LLM이면 첫 응답 지연을 줄이기 위해 모델을 미리 메모리에 적재
         if not config.USE_CLOUD_LLM and isinstance(self.llm, LocalLLMClient):

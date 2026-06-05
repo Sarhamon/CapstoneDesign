@@ -67,13 +67,36 @@ def _start() -> None:
     logger.info("FocusGuard 시작")
 
 
+_BACKOFF_BASE = 2   # 최초 재시작 대기 (초)
+_BACKOFF_MAX  = 60  # 최대 대기 상한
+_STABLE_SECS  = 30  # 이 시간 이상 실행됐으면 안정적 → 백오프 초기화
+
+
 if __name__ == "__main__":
     _protect_self()
     logger.info("감시 시작")
+
+    backoff = _BACKOFF_BASE
+    last_start = time.monotonic()
+
     if not _is_running():
         _start()
+
     while True:
         time.sleep(2)
         if not _is_running():
-            logger.info("FocusGuard 종료 감지 → 재시작")
+            uptime = time.monotonic() - last_start
+            if uptime >= _STABLE_SECS:
+                # 안정적으로 실행되다 종료된 경우 → 백오프 초기화
+                backoff = _BACKOFF_BASE
+            extra_wait = backoff - 2  # 루프 상단 sleep(2)이미 소진
+            if extra_wait > 0:
+                logger.warning(
+                    f"FocusGuard 조기 종료 ({uptime:.0f}초 실행) → {backoff}초 후 재시작"
+                )
+                time.sleep(extra_wait)
+            else:
+                logger.info("FocusGuard 종료 감지 → 재시작")
             _start()
+            last_start = time.monotonic()
+            backoff = min(backoff * 2, _BACKOFF_MAX)
