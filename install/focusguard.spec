@@ -95,12 +95,13 @@ exe_w = EXE(
 coll = COLLECT(
     exe,
     exe_w,
-    a.binaries,
+    a.binaries,   # FocusGuard의 전체 바이너리
     a.zipfiles,
     a.datas,
-    b.binaries,
-    b.zipfiles,
-    b.datas,
+    # b.binaries / b.zipfiles 는 a 의 부분집합이므로 생략 — 중복 DLL 방지
+    # (b.excludes 에 torch/easyocr/cv2/numpy 등 heavy deps 가 명시됐고,
+    #  나머지 win32api/psutil 등은 a.binaries 에 이미 포함됨)
+    # b.datas 는 Analysis 에서 datas=[] 로 지정되어 원래 비어 있음
     strip=False,
     upx=True,
     upx_exclude=[],

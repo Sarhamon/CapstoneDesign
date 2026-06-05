@@ -57,15 +57,23 @@ class ScreenMonitor:
         self.callback = on_detect_callback
         self._is_blocked = is_blocked
 
-
-        logger.info("OCR 모델 초기화 중...")
-        self.ocr = easyocr.Reader(["ko", "en"], gpu=False, verbose=False)
-        logger.info("OCR 모델 초기화 완료")
+        self._ocr = None
+        self._ocr_lock = threading.Lock()
 
         self.running = False
         self._thread = None
         self._last_window_title = ""
         self._last_ocr_at = 0.0
+
+    def _get_ocr(self) -> easyocr.Reader:
+        """OCR 모델을 첫 호출 시점에 초기화하고 반환한다 (지연 초기화)."""
+        if self._ocr is None:
+            with self._ocr_lock:
+                if self._ocr is None:
+                    logger.info("OCR 모델 초기화 중...")
+                    self._ocr = easyocr.Reader(["ko", "en"], gpu=False, verbose=False)
+                    logger.info("OCR 모델 초기화 완료")
+        return self._ocr
 
     def start(self):
         """모니터링 백그라운드 스레드를 시작한다."""
@@ -389,7 +397,7 @@ class ScreenMonitor:
             if img.size == 0:
                 return ""
             min_conf = threshold if threshold is not None else config.OCR_CONFIDENCE_THRESHOLD
-            results = self.ocr.readtext(img, detail=1, canvas_size=1280)
+            results = self._get_ocr().readtext(img, detail=1, canvas_size=1280)
             lines = [
                 text
                 for (_, text, conf) in results

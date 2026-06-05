@@ -21,6 +21,8 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
+_OFFLINE_MAX_ATTEMPTS = 3  # 연속 전송 실패 N회 후 자동 해제
+
 _user32 = ctypes.windll.user32
 
 
@@ -101,6 +103,7 @@ class BlockOverlay:
         self._countdown_label = None
         self._time_label = None
         self._unlock_expires_at = 0.0
+        self._offline_fail_count: int = 0
         self._kb_hook = None
         self._kb_hook_func = None
 
@@ -142,9 +145,10 @@ class BlockOverlay:
                 elif event == "hide":
                     self._hide()
                 elif event == "web-unlock":
-
                     logger.info("[큐 수신] web-unlock 이벤트")
                     self._on_web_unlock()
+                elif event == "cloud-fail":
+                    self._on_cloud_request_failed()
 
         except queue.Empty:
             pass
@@ -210,6 +214,7 @@ class BlockOverlay:
         if config.KEYBOARD_BLOCK_ENABLED:
             self._uninstall_kb_hook()
         self._unlock_expires_at = 0.0
+        self._offline_fail_count = 0
         self._countdown_label = None
         self._action_frame = None
         if self._overlay_frame:
@@ -236,6 +241,60 @@ class BlockOverlay:
         if self.on_unlock:
             self.on_unlock(self._reason)
         self._hide()
+
+    def _on_cloud_request_failed(self):
+        """
+        클라우드 해제 요청 전송 실패 시 호출된다. 메인 스레드에서만 실행된다.
+
+        _OFFLINE_MAX_ATTEMPTS 회 연속 실패 시 네트워크 없이 자동 해제한다.
+        미달 시에는 남은 시도 횟수를 안내하고 재시도 버튼을 표시한다.
+        """
+        if not self._active:
+            return
+        self._offline_fail_count += 1
+        self._unlock_expires_at = 0.0
+        self._countdown_label = None
+
+        if self._offline_fail_count >= _OFFLINE_MAX_ATTEMPTS:
+            logger.info(
+                f"[오프라인 자동 해제] {_OFFLINE_MAX_ATTEMPTS}회 연속 전송 실패 → 자동 해제"
+            )
+            if self.on_unlock:
+                self.on_unlock(self._reason)
+            self._hide()
+        else:
+            remaining = _OFFLINE_MAX_ATTEMPTS - self._offline_fail_count
+            self._build_offline_retry_panel(remaining)
+
+    def _build_offline_retry_panel(self, remaining_attempts: int):
+        """네트워크 오류 안내 및 재시도 버튼을 표시한다."""
+        self._clear_action_frame()
+        if not self._action_frame:
+            return
+        tk.Label(
+            self._action_frame,
+            text="🔴  네트워크 연결 실패",
+            font=("맑은 고딕", 14, "bold"),
+            fg="#e94560", bg="#1a1a2e",
+        ).pack(pady=(0, 8))
+        tk.Label(
+            self._action_frame,
+            text=f"교수자 서버에 연결할 수 없습니다.\n"
+                 f"이후 {remaining_attempts}회 더 실패하면 자동 해제됩니다.",
+            font=("맑은 고딕", 12),
+            fg="#c0c0c0", bg="#1a1a2e",
+            justify="center",
+        ).pack(pady=(0, 16))
+        tk.Button(
+            self._action_frame,
+            text="🔓  다시 요청",
+            font=("맑은 고딕", 13, "bold"),
+            bg="#0f3460", fg="#ffffff",
+            activebackground="#1a5276",
+            relief="flat", padx=24, pady=12,
+            cursor="hand2",
+            command=self._request_unlock,
+        ).pack()
 
     def _build_ui(self):
         """
@@ -407,6 +466,8 @@ class BlockOverlay:
             logger.info(f"[클라우드 해제 요청] 전송 완료 | device_id={device_id}")
         except Exception as e:
             logger.error(f"[클라우드 해제 요청] 전송 실패: {e}")
+            if self._ui_queue:
+                self._ui_queue.put(("cloud-fail",))
 
     def _poll_cloud_approval(self, device_id: str, expires_at: float) -> None:
         url = config.CLOUD_API_URL.rstrip("/") + f"/unlock/{device_id}"
