@@ -10,6 +10,7 @@ import ctypes
 import logging
 import sys
 import threading
+import time
 import queue
 from datetime import datetime
 import numpy as np
@@ -160,9 +161,23 @@ class FocusGuard:
             self.llm.warmup()
 
         self.monitor.start()
+        threading.Thread(target=self._watch_watchdog, daemon=True).start()
 
         self.overlay.run_mainloop()
 
+
+    def _watch_watchdog(self) -> None:
+        """Watchdog 프로세스가 종료되면 재시작한다 (상호 감시)."""
+        import subprocess
+        watchdog_exe = config.BASE_DIR / "FocusGuardWatchdog.exe"
+        if not watchdog_exe.exists():
+            return
+        while True:
+            time.sleep(5)
+            if not any(p.name().lower() == "focusguardwatchdog.exe"
+                       for p in psutil.process_iter(["name"])):
+                logger.info("Watchdog 종료 감지 → 재시작")
+                subprocess.Popen([str(watchdog_exe)])
 
     def _on_detect(self, stage: str, reason: str, screenshot: np.ndarray,
                    target_hwnd: int | None, target_pid: int | None):
