@@ -20,11 +20,11 @@ if ($LASTEXITCODE -ne 0) { Write-Host "PyInstaller 실패" -ForegroundColor Red;
 
 Write-Host ""
 Write-Host "=== 2단계: .env 복사 ===" -ForegroundColor Cyan
-if (Test-Path "install\.env") {
-    Copy-Item "install\.env" "dist\FocusGuard\.env"
+if (Test-Path ".env") {
+    Copy-Item ".env" "dist\FocusGuard\.env"
     Write-Host ".env 복사 완료"
 } else {
-    Write-Host "오류: install\.env 파일 없음" -ForegroundColor Red
+    Write-Host "오류: .env 파일 없음 (프로젝트 루트에 .env를 생성하세요)" -ForegroundColor Red
     exit 1
 }
 

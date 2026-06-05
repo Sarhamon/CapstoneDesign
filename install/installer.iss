@@ -28,9 +28,6 @@ CloseApplications=yes
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
-[Tasks]
-Name: "autostart"; Description: "Windows 시작 시 FocusGuard 자동 실행"; GroupDescription: "추가 옵션:"
-
 [Files]
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -39,14 +36,14 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\{#AppName} 제거"; Filename: "{uninstallexe}"
 
 [Registry]
-; 시작 시 자동 실행 등록 (Tasks: autostart 선택 시)
+; 시작 시 자동 실행 강제 등록 — Watchdog이 FocusGuard를 시작·감시 (제거 시 자동 삭제)
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   ValueType: string; ValueName: "{#AppName}"; \
-  ValueData: """{app}\{#AppExeName}"""; \
-  Flags: uninsdeletevalue; Tasks: autostart
+  ValueData: """{app}\FocusGuardWatchdog.exe"""; \
+  Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "FocusGuard 시작"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\FocusGuardWatchdog.exe"; Description: "FocusGuard 시작"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "taskkill"; Parameters: "/F /IM {#AppExeName}"; Flags: runhidden; RunOnceId: "KillFocusGuard"

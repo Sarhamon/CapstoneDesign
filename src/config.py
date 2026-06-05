@@ -14,14 +14,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 import sys as _sys
 if getattr(_sys, 'frozen', False):
     _BASE_DIR = Path(_sys.executable).parent
+    # PyInstaller 6.x+: 번들 파일은 _internal/ 에 있으므로 _MEIPASS 사용
+    _DATA_DIR = Path(getattr(_sys, '_MEIPASS', _BASE_DIR)) / "data"
 else:
     _BASE_DIR = Path(__file__).resolve().parent.parent
-_DATA_DIR = _BASE_DIR / "data"
+    _DATA_DIR = _BASE_DIR / "data"
 
 
 def _load_yaml(filename: str) -> dict:
     """data/ 디렉토리의 YAML 파일을 읽어 dict로 반환한다. 파일이 없으면 빈 dict."""
     path = _DATA_DIR / filename
+    if not path.exists():
+        return {}
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 

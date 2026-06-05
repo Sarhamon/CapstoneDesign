@@ -53,6 +53,31 @@ def _set_process_dpi_awareness() -> None:
 
 _set_process_dpi_awareness()
 
+
+def _protect_process() -> None:
+    """DACL에서 PROCESS_TERMINATE 권한을 제거하여 작업 관리자 종료를 차단한다."""
+    try:
+        import win32api
+        import win32security
+        PROCESS_TERMINATE = 0x0001
+        PROCESS_ALL_ACCESS = 0x1F0FFF
+        handle = win32api.GetCurrentProcess()
+        dacl = win32security.ACL()
+        # SYSTEM은 전체 권한 허용 (순서 중요: ALLOW가 DENY보다 먼저 와야 SYSTEM이 차단되지 않음)
+        system_sid = win32security.CreateWellKnownSid(win32security.WinLocalSystemSid, None)
+        dacl.AddAccessAllowedAce(win32security.ACL_REVISION, PROCESS_ALL_ACCESS, system_sid)
+        # Everyone에게 TERMINATE 거부 (관리자 포함)
+        everyone_sid = win32security.CreateWellKnownSid(win32security.WinWorldSid, None)
+        dacl.AddAccessDeniedAce(win32security.ACL_REVISION, PROCESS_TERMINATE, everyone_sid)
+        win32security.SetSecurityInfo(  # type: ignore[arg-type]
+            handle, win32security.SE_KERNEL_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+            None, None, dacl, None,
+        )
+    except Exception as e:
+        logging.getLogger("main").warning(f"프로세스 보호 설정 실패: {e}")
+
+
 from config import config
 from monitor import ScreenMonitor
 from llm_client import get_llm_client, LocalLLMClient
@@ -122,6 +147,7 @@ class FocusGuard:
         2. ScreenMonitor 백그라운드 스레드를 시작한다.
         3. Tkinter 메인 루프를 실행한다 (종료 시까지 블로킹).
         """
+        _protect_process()
         logger.info("=" * 50)
         logger.info("FocusGuard 시작")
         logger.info(f"모드: {'클라우드' if config.USE_CLOUD_LLM else '로컬'} LLM")
