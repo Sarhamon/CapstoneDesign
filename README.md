@@ -3,7 +3,7 @@
 수업 방해 콘텐츠 탐지 및 차단 시스템
 
 - **Phase 1 (완료)** — 학생 PC 로컬 실행. Ollama LLM + EasyOCR 기반 4단계 탐지
-- **Phase 2 (진행 중)** — AWS 클라우드 연동. Lambda + DynamoDB + S3 + EC2 LLM 서버
+- **Phase 2 (완료)** — AWS 클라우드 연동. Lambda + DynamoDB + S3 + EC2 LLM 서버
 
 ---
 
@@ -11,28 +11,33 @@
 
 ```
 CapstoneDesign/
-├── src/                  # 학생 PC 실행 코드
-│   ├── main.py           # 메인 컨트롤러 (진입점)
-│   ├── monitor.py        # 화면 캡처 + OCR 파이프라인
-│   ├── llm_client.py     # LLM 추상화 (로컬 Ollama / EC2 Ollama)
-│   ├── overlay.py        # 차단 오버레이 UI (Tkinter)
-│   ├── event_logger.py   # 이벤트 저장 (로컬 JSONL + 원격 API)
-│   ├── web_auth.py       # 해제 인증 HTTP 서버 + 관리자 대시보드
-│   └── config.py         # 설정 관리 (pydantic-settings)
-├── lambda/               # AWS Lambda 함수 코드
-│   ├── fg_log_event.py   # POST /event/log — 이벤트 인제스트 (S3)
-│   ├── fg_update_lists.py # POST /list/update — blocklist/allowlist CRUD (DynamoDB)
-│   ├── fg_get_lists.py   # GET /list — blocklist/allowlist 조회 (DynamoDB)
-│   ├── fg_get_events.py  # GET /events — 이벤트 로그 조회 (S3)
-│   └── fg_unlock.py      # POST /unlock/{device_id} — 해제 인증 (S3)
-├── scripts/              # 유틸리티 스크립트
-│   └── seed_dynamodb.py  # DynamoDB 초기 데이터 적재
+├── src/                    # 학생 PC 실행 코드
+│   ├── main.py             # 메인 컨트롤러 (진입점)
+│   ├── watchdog.py         # FocusGuard 감시·재시작 프로세스 (지수 백오프)
+│   ├── monitor.py          # 화면 캡처 + OCR 파이프라인 (EasyOCR 지연 초기화)
+│   ├── llm_client.py       # LLM 추상화 (로컬 Ollama / EC2 Ollama)
+│   ├── overlay.py          # 차단 오버레이 UI (Tkinter, 클라우드 해제 요청)
+│   ├── event_logger.py     # 이벤트 저장 (로컬 JSONL + 원격 API, 자동 로테이션)
+│   └── config.py           # 설정 관리 (pydantic-settings, 클라우드 목록 동기화)
+├── lambda/                 # AWS Lambda 함수 코드
+│   ├── fg_log_event.py     # POST /event/log — 이벤트 인제스트 (S3)
+│   ├── fg_update_lists.py  # POST /list/update — blocklist/allowlist CRUD (DynamoDB)
+│   ├── fg_get_lists.py     # GET /list — blocklist/allowlist 조회 (DynamoDB)
+│   ├── fg_get_events.py    # GET /events — 이벤트 로그 조회 (S3)
+│   └── fg_unlock.py        # POST /unlock/{device_id} — 해제 승인 (S3)
+├── install/                # 배포 빌드 도구
+│   ├── build.ps1           # PyInstaller → .env 복사 → Inno Setup 일괄 빌드
+│   ├── focusguard.spec     # PyInstaller 빌드 설정 (FocusGuard + Watchdog 2-EXE)
+│   └── installer.iss       # Inno Setup 설치 마법사 스크립트
+├── scripts/                # 유틸리티 스크립트
+│   └── seed_dynamodb.py    # DynamoDB 초기 데이터 적재
 ├── data/
-│   ├── blacklists.yaml   # 프로세스·타이틀·URL·키워드 블랙리스트
-│   └── whitelists.yaml   # 프로세스·URL 화이트리스트
+│   ├── blacklists.yaml     # 프로세스·타이틀·URL·키워드 블랙리스트
+│   └── whitelists.yaml     # 프로세스·URL 화이트리스트
 ├── docs/
-│   └── index.html        # 프로젝트 진행 현황 리포트
-├── .env.example          # 환경변수 설정 예시
+│   ├── index.html          # 프로젝트 진행 현황 리포트
+│   └── admin/              # 관리자 웹 대시보드
+├── .env.example            # 환경변수 설정 예시
 └── requirements.txt
 ```
 
@@ -49,40 +54,39 @@ CapstoneDesign/
          ↓ 모호한 경우
 4단계: Ollama LLM 최종 판단                    (~2~10초)
          ↓ BLOCK
-차단 오버레이 표시 + 웹 기반 해제 인증
+차단 오버레이 표시 → 클라우드 해제 요청 (POST /unlock/{device_id})
 ```
 
 ---
 
 ## 설치 방법
 
-### 1. Ollama 설치 및 모델 다운로드
+### 배포용 (권장) — Inno Setup 인스톨러
 
-```bash
-# https://ollama.com/download 에서 설치
+```powershell
+# 1. 빌드 (프로젝트 루트에서 실행)
+powershell -ExecutionPolicy Bypass -File install\build.ps1
 
-# 모델 다운로드 (택 1)
-ollama pull gemma3:4b        # 권장 (균형)
-ollama pull gemma3:1b        # 초경량 (저사양 PC)
-ollama pull qwen2.5:3b       # 한국어 우수
+# 2. 생성된 인스톨러 실행
+dist\FocusGuard_Setup_1.0.0.exe
 ```
 
-### 2. Python 패키지 설치
+인스톨러가 자동으로 처리하는 항목:
+- `FocusGuard.exe` + `FocusGuardWatchdog.exe` 설치
+- 시작 시 자동 실행 레지스트리 등록 (`HKLM\...\Run`)
+- 설치 완료 후 FocusGuardWatchdog 자동 시작
+
+### 개발용 — Python 직접 실행
 
 ```bash
+# 1. Python 패키지 설치
 pip install -r requirements.txt
-```
 
-### 3. 환경변수 설정
-
-```bash
+# 2. 환경변수 설정
 cp .env.example .env
 # .env 파일을 열어 필요한 값 수정
-```
 
-### 4. 실행
-
-```bash
+# 3. 실행
 cd src
 python main.py
 ```
@@ -97,19 +101,21 @@ python main.py
 | `FAST_POLL_INTERVAL` | 1.0 | 포커스 창 변경 감지 주기 (초) |
 | `OLLAMA_MODEL` | gemma3:4b | 사용할 로컬 LLM 모델 |
 | `KEYWORD_THRESHOLD` | 2 | LLM 검증 트리거 최소 키워드 수 |
+| `UNLOCK_CODE_TTL` | 120 | 클라우드 해제 승인 대기 타임아웃 (초) |
+| `KEYBOARD_BLOCK_ENABLED` | true | 오버레이 활성화 중 키보드 전체 차단 여부 |
 | `USE_CLOUD_LLM` | false | true 시 EC2 Ollama 서버 사용 |
 | `CLOUD_LLM_HOST` | (없음) | EC2 Ollama 서버 주소 |
-| `CLOUD_API_URL` | (없음) | API Gateway URL (이벤트 원격 전송) |
-| `WEB_AUTH_PORT` | 8080 | 해제 인증 페이지 포트 |
+| `CLOUD_API_URL` | (없음) | API Gateway URL (이벤트 원격 전송 + 해제 요청) |
 
 ### 블랙리스트 / 화이트리스트 수정
 
-`data/blacklists.yaml` 과 `data/whitelists.yaml` 을 직접 편집한다.
-앱 실행 중 변경하면 관리자 대시보드에서 **목록 갱신** 버튼으로 즉시 반영된다.
+`data/blacklists.yaml`과 `data/whitelists.yaml`을 직접 편집한다.  
+앱 재시작 시 클라우드에서 최신 목록을 자동으로 동기화한다 (`CLOUD_API_URL` 설정 시).  
+관리자 대시보드에서 실시간 편집 및 반영도 가능하다.
 
 ---
 
-## 클라우드 LLM 전환 (Phase 2)
+## 클라우드 LLM 전환
 
 EC2에 Ollama가 설치된 후 `.env` 두 줄만 변경하면 전환된다.
 
@@ -120,9 +126,9 @@ CLOUD_LLM_HOST=http://ec2-xx-xx-xx-xx.ap-northeast-2.compute.amazonaws.com:11434
 
 ---
 
-## 이벤트 클라우드 전송 (Phase 2)
+## 이벤트 클라우드 전송
 
-`CLOUD_API_URL` 이 설정되면 차단 이벤트가 로컬 JSONL과 S3에 동시 기록된다.
+`CLOUD_API_URL`이 설정되면 차단 이벤트가 로컬 JSONL과 S3에 동시 기록된다.
 
 ```env
 CLOUD_API_URL=https://xxxxxxxxxx.execute-api.ap-northeast-2.amazonaws.com
@@ -132,13 +138,23 @@ CLOUD_API_URL=https://xxxxxxxxxx.execute-api.ap-northeast-2.amazonaws.com
 
 ## 로그 확인
 
-```bash
-# 실시간 로그 (Windows PowerShell)
-Get-Content logs/focus_guard.log -Wait
+```powershell
+# 실시간 애플리케이션 로그 (5MB × 3세대 자동 로테이션)
+Get-Content logs\focus_guard.log -Wait
 
-# 이벤트 로그 (JSON Lines)
-Get-Content logs/events.jsonl
+# 이벤트 로그 (JSON Lines, 10MB 초과 시 자동 로테이션)
+Get-Content logs\events.jsonl
 ```
+
+---
+
+## Watchdog 동작
+
+FocusGuardWatchdog는 FocusGuard를 감시하며 비정상 종료 시 자동 재시작한다.
+
+- 재시작 간격: 2초 → 4초 → 8초 → ... → 최대 60초 (지수 백오프)
+- 30초 이상 안정 실행 시 백오프 초기화
+- FocusGuard ↔ Watchdog 상호 감시 구조 (어느 쪽이 종료되어도 복구됨)
 
 ---
 
@@ -151,7 +167,8 @@ Get-Content logs/events.jsonl
 | VPN 우회 후 유튜브 | OCR URL 감지 → 차단 |
 | 수업 관련 GitHub | 화이트리스트 통과 |
 | 게임 실행 | 프로세스명 감지 → 차단 |
-| 해제 인증 성공 | `logs/events.jsonl` 에 UNLOCK_REQUEST 기록 |
+| 해제 요청 (클라우드 오프라인) | 3회 실패 시 자동 해제 |
+| 해제 요청 (클라우드 정상) | POST /unlock → 승인 시 오버레이 해제 |
 
 ---
 
@@ -159,19 +176,21 @@ Get-Content logs/events.jsonl
 
 ```
 [학생 PC]
-  ├── 4단계 탐지 (타이틀 → OCR → LLM)
-  ├── EventLogger → RemoteSink → POST /event/log
-  └── BlockOverlay → 해제 요청 → POST /unlock/{device_id}
-              ↓ HTTPS
-       [API Gateway: focusguard-api-v2]
-              ↓
-          [Lambda × 5]
-           │            │
-           ▼            ▼
-     [S3: focusguard-data]   [DynamoDB]
-       (이벤트 로그)          (blocklist/allowlist)
-                        ▲
-               [EC2: Ollama LLM 서버]
+  ├── FocusGuardWatchdog.exe  (상호 감시·재시작)
+  └── FocusGuard.exe
+       ├── 4단계 탐지 (타이틀 → OCR → LLM)
+       ├── EventLogger → RemoteSink → POST /event/log
+       └── BlockOverlay → 해제 요청 → POST /unlock/{device_id}
+                    ↓ HTTPS
+           [API Gateway: focusguard-api-v2]
+                    ↓
+                [Lambda × 5]
+                 │            │
+                 ▼            ▼
+         [S3: focusguard-data]   [DynamoDB]
+           (이벤트 로그)          (blocklist/allowlist)
+                              ▲
+                     [EC2: Ollama LLM 서버]
 ```
 
 진행 현황 상세: [docs/index.html](docs/index.html)
