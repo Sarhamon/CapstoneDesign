@@ -65,6 +65,7 @@ class ScreenMonitor:
         self.running = False
         self._thread = None
         self._last_window_title = ""
+        self._last_ocr_at = 0.0
 
     def start(self):
         """모니터링 백그라운드 스레드를 시작한다."""
@@ -102,6 +103,10 @@ class ScreenMonitor:
 
         예외가 발생해도 루프가 중단되지 않도록 try/except로 감싼다.
         """
+        # OCR 스레드를 낮은 우선순위로 실행해 다른 앱 CPU를 빼앗지 않도록 한다
+        ctypes.windll.kernel32.SetThreadPriority(
+            ctypes.windll.kernel32.GetCurrentThread(), -1  # THREAD_PRIORITY_BELOW_NORMAL
+        )
         last_full_scan_at = 0.0
         last_focus_key: tuple | None = None
 
@@ -240,6 +245,13 @@ class ScreenMonitor:
             self.callback("TITLE_MATCH", result, screenshot, target_hwnd, target_pid)
             return
 
+        # OCR은 POLL_INTERVAL 쿨다운 적용 — 창 전환이 잦아도 OCR 연속 호출 방지
+        now = time.monotonic()
+        if now - self._last_ocr_at < config.POLL_INTERVAL:
+            logger.debug("OCR 쿨다운 중 — 건너뜀")
+            return
+        self._last_ocr_at = now
+
         target_hwnd, target_pid = self._get_current_focus_info()
         screenshot = self._capture_screen(target_hwnd)
         url_text, body_text = self._split_zones(screenshot)
@@ -377,7 +389,7 @@ class ScreenMonitor:
             if img.size == 0:
                 return ""
             min_conf = threshold if threshold is not None else config.OCR_CONFIDENCE_THRESHOLD
-            results = self.ocr.readtext(img, detail=1)
+            results = self.ocr.readtext(img, detail=1, canvas_size=1280)
             lines = [
                 text
                 for (_, text, conf) in results

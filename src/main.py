@@ -87,13 +87,13 @@ from event_logger import EventLogger
 
 config.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+_log_handlers = [logging.FileHandler(config.LOG_DIR / "focus_guard.log", encoding="utf-8")]
+if sys.stdout is not None:
+    _log_handlers.insert(0, logging.StreamHandler(sys.stdout))
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(config.LOG_DIR / "focus_guard.log", encoding="utf-8"),
-    ],
+    handlers=_log_handlers,
 )
 logger = logging.getLogger("main")
 
@@ -173,7 +173,7 @@ class FocusGuard:
         if not watchdog_exe.exists():
             return
         while True:
-            time.sleep(5)
+            time.sleep(2)
             if not any(p.name().lower() == "focusguardwatchdog.exe"
                        for p in psutil.process_iter(["name"])):
                 logger.info("Watchdog 종료 감지 → 재시작")

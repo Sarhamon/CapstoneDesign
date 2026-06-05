@@ -11,10 +11,14 @@ import sys
 import time
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] watchdog: %(message)s",
-)
+if sys.stdout is None:
+    # console=False 빌드: stdout/stderr 모두 None이므로 NullHandler로 대체
+    logging.getLogger().addHandler(logging.NullHandler())
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] watchdog: %(message)s",
+    )
 logger = logging.getLogger("watchdog")
 
 _EXE_DIR = Path(sys.executable).parent
@@ -69,8 +73,7 @@ if __name__ == "__main__":
     if not _is_running():
         _start()
     while True:
-        time.sleep(5)
+        time.sleep(2)
         if not _is_running():
             logger.info("FocusGuard 종료 감지 → 재시작")
-            time.sleep(2)
             _start()
