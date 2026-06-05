@@ -70,10 +70,10 @@ def _protect_process() -> None:
         # Everyone에게 TERMINATE 거부 (관리자 포함)
         everyone_sid = win32security.CreateWellKnownSid(win32security.WinWorldSid, None)
         dacl.AddAccessDeniedAce(win32security.ACL_REVISION, PROCESS_TERMINATE, everyone_sid)
-        win32security.SetSecurityInfo(  # type: ignore[arg-type]
+        win32security.SetSecurityInfo(
             handle, win32security.SE_KERNEL_OBJECT,
             win32security.DACL_SECURITY_INFORMATION,
-            None, None, dacl, None,
+            None, None, dacl, None,  # type: ignore[reportArgumentType]
         )
     except Exception as e:
         logging.getLogger("main").warning(f"프로세스 보호 설정 실패: {e}")

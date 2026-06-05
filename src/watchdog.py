@@ -38,10 +38,10 @@ def _protect_self() -> None:
         dacl.AddAccessAllowedAce(win32security.ACL_REVISION, PROCESS_ALL_ACCESS, system_sid)
         everyone_sid = win32security.CreateWellKnownSid(win32security.WinWorldSid, None)
         dacl.AddAccessDeniedAce(win32security.ACL_REVISION, PROCESS_TERMINATE, everyone_sid)
-        win32security.SetSecurityInfo(  # type: ignore[arg-type]
+        win32security.SetSecurityInfo(
             handle, win32security.SE_KERNEL_OBJECT,
             win32security.DACL_SECURITY_INFORMATION,
-            None, None, dacl, None,
+            None, None, dacl, None,  # type: ignore[reportArgumentType]
         )
         logger.info("DACL 보호 완료")
     except Exception as e:
