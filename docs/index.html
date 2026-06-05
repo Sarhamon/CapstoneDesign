@@ -892,12 +892,61 @@
     </div>
   </div>
 
+  <div class="log-entry">
+    <div class="log-date">2026-06-05 (금)</div>
+    <div class="log-body">
+      <p><strong>PyInstaller 6.x 배포 경로 버그 수정 — <code>config.py</code> <code>_DATA_DIR</code> 패치.</strong></p>
+      <ul>
+        <li>현상: 빌드된 exe 실행 시 <code>FileNotFoundError: data/blacklists.yaml</code> — PyInstaller 6.x부터 번들 파일이 <code>_internal/</code>로 이동했는데 코드는 <code>sys.executable</code> 기준 경로(exe 폴더 루트)를 사용하고 있었음</li>
+        <li>수정: frozen 환경에서 <code>_DATA_DIR</code>를 <code>sys._MEIPASS / "data"</code>로 설정 (exe 위치와 번들 데이터 위치 분리)</li>
+        <li><code>_load_yaml()</code>도 파일 부재 시 빈 dict 반환하도록 수정 (docstring 약속 이행)</li>
+      </ul>
+
+      <p><strong>빌드·설치 스크립트 개선.</strong></p>
+      <ul>
+        <li><code>build.ps1</code> — <code>.env</code> 복사 경로를 <code>install\.env</code>에서 프로젝트 루트 <code>.env</code>로 수정</li>
+        <li><code>installer.iss</code> — 시작 프로그램 등록을 선택 체크박스(Tasks)에서 설치 시 강제 등록으로 변경</li>
+      </ul>
+
+      <p><strong>Watchdog 프로세스 도입 — <code>src/watchdog.py</code> 신규 작성 + 상호 감시 구조 구축.</strong></p>
+      <ul>
+        <li>배경: FocusGuard가 작업 관리자에서 강제 종료될 경우 재기동 수단 없음</li>
+        <li><code>src/watchdog.py</code> 신규: 2초 주기로 FocusGuard 실행 여부 확인, 종료 감지 시 즉시 재시작</li>
+        <li><code>main.py</code>에 <code>_watch_watchdog()</code> 데몬 스레드 추가 — FocusGuard도 Watchdog을 역감시하는 상호 감시(mutual watch) 구조 완성</li>
+        <li><code>focusguard.spec</code> — Watchdog을 <code>FocusGuardWatchdog.exe</code>로 별도 빌드하도록 Analysis/EXE/COLLECT 추가</li>
+        <li><code>installer.iss</code> — 시작 프로그램 등록 대상 및 설치 후 즉시 실행 대상을 <code>FocusGuard.exe</code>에서 <code>FocusGuardWatchdog.exe</code>로 변경 (Watchdog → FocusGuard 기동 흐름)</li>
+      </ul>
+
+      <p><strong>DACL 프로세스 보호 추가.</strong></p>
+      <ul>
+        <li><code>main.py</code>와 <code>watchdog.py</code> 모두 시작 시 <code>_protect_process()</code> 호출 — win32security로 DACL에서 <code>PROCESS_TERMINATE</code> 권한 제거</li>
+        <li>SYSTEM 계정에는 전체 권한 유지, Everyone에게만 TERMINATE 거부</li>
+        <li>한계 확인: 관리자 권한으로 실행된 작업 관리자는 <code>SeDebugPrivilege</code>로 DACL을 우회 가능 → Watchdog 재시작이 실질적 방어 수단</li>
+      </ul>
+
+      <p><strong>OCR CPU 스파이크 개선 — <code>monitor.py</code> 성능 최적화.</strong></p>
+      <ul>
+        <li>현상: 12초마다 EasyOCR 실행 시 CPU 94.5%까지 급상승</li>
+        <li>창 전환 시 OCR 연속 호출 방지: <code>_last_ocr_at</code> 타임스탬프로 OCR 쿨다운 적용</li>
+        <li>모니터 스레드 우선순위를 <code>THREAD_PRIORITY_BELOW_NORMAL</code>로 낮춰 다른 앱 CPU 보호</li>
+        <li>EasyOCR <code>canvas_size</code>를 기본값(2560)에서 1280으로 축소 — 추론 입력 면적 4분의 1 감소</li>
+      </ul>
+
+      <p><strong>빌드 관련 버그 수정.</strong></p>
+      <ul>
+        <li><code>console=False</code> 빌드 시 <code>sys.stdout</code>/<code>sys.stderr</code>가 None → <code>StreamHandler(sys.stdout)</code> 런타임 크래시 수정: stdout None 여부 확인 후 조건부 핸들러 등록</li>
+        <li><code>watchdog.py</code> 동일 문제 수정: frozen 환경에서 <code>NullHandler</code> 사용, 개발 환경에서는 기본 <code>StreamHandler</code> 유지</li>
+        <li>Pylance 타입 경고 수정: <code>SetSecurityInfo</code> None 인자의 <code># type: ignore</code> 주석을 실제 None이 위치한 줄로 이동</li>
+      </ul>
+    </div>
+  </div>
+
   <!-- 새 날짜 작업: 위 패턴으로 새 .log-entry 블록 추가. 같은 날짜 추가 작업은 그 날 블록 안에 <p><strong>...</strong></p> + <ul> 쌍을 덧붙이세요. -->
 
 </details>
 
 <footer>
-  FocusGuard 프로젝트 진행 현황 리포트 · 마지막 업데이트 2026-05-29 · CapstoneDesign
+  FocusGuard 프로젝트 진행 현황 리포트 · 마지막 업데이트 2026-06-05 · CapstoneDesign
 </footer>
 
 </div>
