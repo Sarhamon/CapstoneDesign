@@ -613,7 +613,7 @@
     <li class="done">DynamoDB 연동 (fg-update-lists / fg-get-lists 두 Lambda를 DynamoDB 기반으로 재작성·배포 완료)</li>
     <li class="done"><code>overlay.py</code> 클라우드 해제 플로우 구현 — <code>POST /unlock/{device_id}</code> 요청 전송 + 3초 폴링으로 관리자 승인 자동 감지, <code>CLOUD_API_URL</code> 미설정 시 Phase 1 로컬 QR 폴백</li>
     <li class="done">EC2 프로비저닝 + Ollama 설치 + <code>USE_CLOUD_LLM=True</code> 클라우드 LLM 통합 테스트 완료</li>
-    <li class="pending">DynamoDB Local 기반 통합 테스트 작성</li>
+    <li class="done">DynamoDB Local 기반 통합 테스트 완료</li>
   </ul>
 </details>
 
@@ -706,7 +706,7 @@
   <ul>
     <li><strong>외부 의존 작업 대기</strong> → DynamoDB 이전·API 라우트 추가가 외부 처리 일정에 묶여 일정 압박 가능 → 그 사이 S3 JSON fallback으로 운영은 계속, 작업 가능한 영역(스키마 설계·로컬 통합 테스트·클라이언트 어댑터)을 우선 진행</li>
     <li><strong>EC2 단일 인스턴스 운영</strong> → 장애 시 모든 학생 PC의 LLM 검증 중단 → 캐스케이드 1~3단계는 학생 PC 로컬에서 처리하므로 핵심 차단 기능은 유지</li>
-    <li><strong>학생 PC 인터넷 차단 시</strong> → API Gateway 호출 실패 → 로컬 fallback 모드 필요 (TODO)</li>
+    <li><strong>학생 PC 인터넷 차단 시</strong> → API Gateway 호출 실패 → <span style="color:var(--done)"><strong>해소됨</strong></span>: 해제 요청 3회 연속 실패 시 오버레이 자동 해제 (<code>_OFFLINE_MAX_ATTEMPTS = 3</code>, 2026-06-05 구현)</li>
     <li><strong>MAC 주소 PII 처리</strong> → 외부 전송 금지, AWS 내부 저장에 대해서도 가이드 정립 필요</li>
   </ul>
 </details>
@@ -969,6 +969,12 @@
         <li><strong><code>.env</code> 미사용 필드 정리</strong>: <code>web_auth.py</code> 삭제로 참조 코드가 없는 <code>WEB_AUTH_PORT</code>, <code>Config</code>에 없어 조용히 무시되던 <code>UNLOCK_CODE_LENGTH</code> · <code>UNLOCK_MAX_FAILED_ATTEMPTS</code> 3종 제거. <code>.env</code> · <code>.env.example</code> · <code>dist/FocusGuard/.env</code> 3파일 동기화. "HTTP 서버" 섹션 헤더도 함께 제거.</li>
         <li><strong>EasyOCR 지연 초기화</strong>: <code>monitor.py</code> <code>__init__</code>에서 <code>easyocr.Reader()</code> 즉시 호출 제거 → <code>self._ocr = None</code> + <code>self._ocr_lock</code>으로 교체. <code>_get_ocr()</code> 메서드(이중 검사 패턴)를 추가, <code>_ocr_to_text()</code>에서 호출. 앱 시작 직후 PyTorch 모델 로드 불필요 → 유휴 메모리 절감.</li>
         <li><strong><code>focusguard.spec</code> 중복 DLL 제거</strong>: <code>COLLECT</code>에서 <code>b.binaries</code> · <code>b.zipfiles</code> 제거. <code>b.excludes</code>에 torch/easyocr/cv2/numpy 등 heavy deps 명시됐고, 나머지(win32api/psutil 등)는 <code>a.binaries</code>의 완전한 부분집합임을 주석으로 명시. <code>MERGE</code> 미사용 이유(PyInstaller 6.x 단일 COLLECT와 불안정)도 기록.</li>
+      </ul>
+
+      <p><strong>클라우드 통합 단계 전체 완료 확인.</strong></p>
+      <ul>
+        <li>DynamoDB Local 기반 통합 테스트 완료 — Phase 2 클라우드 통합 코드 체크리스트 전 항목 done 처리</li>
+        <li>리스크 항목 갱신: "학생 PC 인터넷 차단 시 fallback 모드 필요(TODO)" → 3회 실패 자동 해제(<code>_OFFLINE_MAX_ATTEMPTS</code>)로 해소됨으로 변경</li>
       </ul>
 
   <!-- 새 날짜 작업: 위 패턴으로 새 .log-entry 블록 추가. 같은 날짜 추가 작업은 그 날 블록 안에 <p><strong>...</strong></p> + <ul> 쌍을 덧붙이세요. -->
