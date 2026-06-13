@@ -32,3 +32,5 @@ build/
 docs/*
 !docs/index.html
 !docs/admin/
+
+report/

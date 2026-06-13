@@ -190,7 +190,8 @@ class FocusGuard:
                 subprocess.Popen([str(watchdog_exe)])
 
     def _on_detect(self, stage: str, reason: str, screenshot: np.ndarray,
-                   target_hwnd: int | None, target_pid: int | None):
+                   target_hwnd: int | None, target_pid: int | None,
+                   ocr_text: str = ""):
         """
         ScreenMonitor에서 탐지 이벤트 발생 시 호출되는 콜백.
 
@@ -230,12 +231,13 @@ class FocusGuard:
         # 키워드 탐지는 별도 스레드에서 LLM 검증 후 최종 차단 여부 결정
         threading.Thread(
             target=self._llm_verify,
-            args=(stage, reason, screenshot, target_hwnd, target_pid),
+            args=(stage, reason, screenshot, target_hwnd, target_pid, ocr_text),
             daemon=True,
         ).start()
 
     def _llm_verify(self, stage: str, reason: str, screenshot: np.ndarray,
-                    target_hwnd: int | None, target_pid: int | None):
+                    target_hwnd: int | None, target_pid: int | None,
+                    ocr_text: str = ""):
         """
         LLM을 호출하여 콘텐츠 키워드 탐지 결과를 검증한다.
 
@@ -258,9 +260,9 @@ class FocusGuard:
 
             logger.info(f"LLM 검증 시작: {stage} | {reason}")
             llm_result = self.llm.analyze(
-                window_title=reason,
+                window_title="",
                 url_text="",
-                ocr_text=reason,
+                ocr_text=ocr_text or reason,
             )
 
             # LLM 판정에 따라 차단 또는 허용 처리

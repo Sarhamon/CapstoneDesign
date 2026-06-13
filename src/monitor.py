@@ -278,7 +278,9 @@ class ScreenMonitor:
 
         result = self._check_content_keywords(body_n)
         if result:
-            self.callback("KEYWORD_MATCH", result, screenshot, target_hwnd, target_pid)
+            # LLM 검증이 실제 화면 내용을 보고 판단하도록 OCR 본문 텍스트를 함께 전달
+            self.callback("KEYWORD_MATCH", result, screenshot, target_hwnd, target_pid,
+                          ocr_text=body_text)
             return
 
         logger.debug("탐지 없음 — 허용")
@@ -424,8 +426,12 @@ class ScreenMonitor:
         if not url_n:
             return None
         url_compact = url_n.replace(" ", "")
+        # OCR이 도메인의 점(.)을 누락해 'gmarket.co.kr'를 'gmarketcokr'로 읽는 경우가
+        # 많으므로, 점·공백을 모두 제거한 형태로도 비교한다.
+        url_nopunct = url_compact.replace(".", "")
         for keyword in config.URL_BLACKLIST:
-            if keyword in url_n or keyword in url_compact:
+            if keyword in url_n or keyword in url_compact \
+                    or keyword.replace(".", "") in url_nopunct:
                 return f"URL 키워드 감지: '{keyword}'"
         return None
 
